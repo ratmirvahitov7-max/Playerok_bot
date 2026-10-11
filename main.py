@@ -2,7 +2,7 @@ import asyncio
 import os
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import CommandStart
-from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
+from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, WebAppInfo
 from aiohttp import web
 from database import init_db, add_user
 
@@ -11,6 +11,13 @@ bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
 ADMIN_ID = 8158413794  
+
+# Временная память 
+settings_state = {
+    "delivery": False,
+    "bump": False,
+    "account_connected": False 
+}
 
 def main_keyboard():
     return ReplyKeyboardMarkup(
@@ -22,12 +29,14 @@ def main_keyboard():
         resize_keyboard=True
     )
 
-# --- Инлайн-клавиатура для настроек ---
 def settings_keyboard():
+    delivery_text = "Вкл ✅" if settings_state["delivery"] else "Выкл ❌"
+    bump_text = "Вкл ✅" if settings_state["bump"] else "Выкл ❌"
+    
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="🔄 Авто-выдача: Выкл", callback_data="toggle_delivery")],
-            [InlineKeyboardButton(text="🚀 Авто-поднятие: Выкл", callback_data="toggle_bump")],
+            [InlineKeyboardButton(text=f"🔄 Авто-выдача: {delivery_text}", callback_data="toggle_delivery")],
+            [InlineKeyboardButton(text=f"🚀 Авто-поднятие: {bump_text}", callback_data="toggle_bump")],
             [InlineKeyboardButton(text="🔌 Привязать аккаунт Playerok", callback_data="bind_account")]
         ]
     )
@@ -53,28 +62,49 @@ async def profile_handler(message: Message):
         f"💎 Подписка: Отсутствует\n"
         f"💰 Баланс: 0 RUB\n"
         f"📦 Всего пополнений: 0 RUB\n"
-        f"🔌 Подключено аккаунтов: 0 / 1"
+        f"🔌 Подключено аккаунтов: {1 if settings_state['account_connected'] else 0} / 1"
     )
     await message.answer(text, parse_mode="HTML")
 
-# --- Обработчик кнопки Настройки ---
 @dp.message(F.text == "⚙️ Настройки")
 async def settings_handler(message: Message):
     if message.from_user.id != ADMIN_ID:
         return
     await message.answer(
         "⚙️ <b>Настройки автоматизации:</b>\n\n"
-        "Выберите нужный раздел для настройки бота.",
+        "Выберите нужный параметр:",
         reply_markup=settings_keyboard(),
         parse_mode="HTML"
     )
 
-# --- Обработчик нажатий на инлайн-кнопки (пока заглушка) ---
 @dp.callback_query(F.data.in_(["toggle_delivery", "toggle_bump", "bind_account"]))
 async def callbacks_handler(callback: CallbackQuery):
-    await callback.answer("🛠 Функция в разработке. Скоро добавим!", show_alert=True)
+    if callback.data == "toggle_delivery":
+        if not settings_state["account_connected"]:
+            await callback.answer("Сначала подключите аккаунт Playerok!", show_alert=True)
+            return
+            
+        settings_state["delivery"] = not settings_state["delivery"]
+        await callback.message.edit_reply_markup(reply_markup=settings_keyboard())
+        
+    elif callback.data == "toggle_bump":
+        if not settings_state["account_connected"]:
+            await callback.answer("Сначала подключите аккаунт Playerok!", show_alert=True)
+            return
+            
+        # Выдаем сообщение и кнопку для WebApp
+        webapp_btn = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="📱 Открыть мини-приложение", web_app=WebAppInfo(url="https://playerok.com"))]
+        ])
+        await callback.message.answer("Зайдите в мини-приложение и настройте, на какие товары будет работать автоподнятие.", reply_markup=webapp_btn)
+        await callback.answer()
+        
+    elif callback.data == "bind_account":
+        settings_state["account_connected"] = True
+        await callback.message.edit_reply_markup(reply_markup=settings_keyboard())
+        await callback.answer("Аккаунт успешно 'привязан'!", show_alert=True)
 
-# --- Фейковый веб-сервер для бесплатного Render ---
+# --- Фейковый веб-сервер ---
 async def handle_ping(request):
     return web.Response(text="Bot is running!")
 
