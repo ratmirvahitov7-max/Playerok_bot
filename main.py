@@ -2,7 +2,7 @@ import asyncio
 import os
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import CommandStart
-from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
+from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, WebAppInfo
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiohttp import web
@@ -49,7 +49,6 @@ def profile_keyboard():
         ]
     )
 
-# --- Генератор страниц настроек (Все функции из видео) ---
 def settings_page(page: int):
     buttons = []
     if page == 1:
@@ -85,19 +84,15 @@ def settings_page(page: int):
             [InlineKeyboardButton(text="📤 Экспорт настроек", callback_data="stub")]
         ]
 
-    # Логика круговой пагинации (1 -> 2 -> 3 -> 1)
     prev_page = 3 if page == 1 else page - 1
     next_page = 1 if page == 3 else page + 1
     
-    # Тот самый ряд с тремя кнопками
     buttons.append([
         InlineKeyboardButton(text="⬅️", callback_data=f"set_page_{prev_page}"),
         InlineKeyboardButton(text=f"{page} / 3", callback_data="ignore"),
         InlineKeyboardButton(text="➡️", callback_data=f"set_page_{next_page}")
     ])
-    # Отдельная кнопка назад
     buttons.append([InlineKeyboardButton(text="🔙 Назад", callback_data="close_menu")])
-    
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 def sub_menu_keyboard():
@@ -149,15 +144,42 @@ async def admin_panel_handler(message: Message):
 async def accounts_handler(message: Message):
     if message.from_user.id != ADMIN_ID: return
     if settings_state["account_connected"]:
-        # Отображаем визуал из видео как заглушку, пока не готов реальный парсер
-        text = "📦 <b>Всего аккаунтов: 1</b>\n\n🟢 <b>SellGemina</b> | 1649.6 ₽ | ⭐️ 206✨\n\n<i>(Отображаются демонстрационные данные. Реальный парсер в разработке)</i>"
+        text = "📦 <b>Всего аккаунтов: 1</b>\n\n🟢 <b>SellGemina</b> | 1649.6 ₽ | ⭐️ 206✨\n\n<i>(Отображаются демонстрационные данные)</i>"
         kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="Удалить аккаунт", callback_data="stub")]])
     else:
         text = "📦 <b>Всего аккаунтов: 0</b>\n\nНет подключенных аккаунтов."
         kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="➕ Добавить аккаунт", callback_data="bind_account")]])
     await message.answer(text, reply_markup=kb, parse_mode="HTML")
 
-@dp.message(F.text.in_(["📊 Статистика", "🌐 Мои прокси", "💬 Чаты", "🛒 Заказы", "🏷 Товары", "💳 Транзакции"]))
+# --- НОВОЕ: Обработчик Статистики ---
+@dp.message(F.text.contains("Статистика"))
+async def stats_handler(message: Message):
+    if message.from_user.id != ADMIN_ID: return
+    
+    if not settings_state["account_connected"]:
+        kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔌 Подключить аккаунт Playerok", callback_data="bind_account")]])
+        await message.answer("⚠️ <b>Доступ закрыт</b>\n\nДля просмотра статистики необходимо сначала подключить аккаунт Playerok.", reply_markup=kb, parse_mode="HTML")
+    else:
+        text = (
+            "📊 <b>Статистика работы бота</b>\n\n"
+            "📈 <b>За сегодня:</b>\n"
+            "💸 Заработано: 0 ₽\n"
+            "🛒 Успешных сделок: 0 шт.\n"
+            "🔄 Авто-выдач: 0\n"
+            "🚀 Авто-поднятий: 0\n\n"
+            "🗓 <b>За всё время:</b>\n"
+            "💸 Заработано: 0 ₽\n"
+            "🛒 Успешных сделок: 0 шт.\n"
+            "🔄 Авто-выдач: 0\n"
+            "🚀 Авто-поднятий: 0\n\n"
+            "<i>(Расширенная аналитика с расчетом себестоимости и топами продаж доступна в мини-приложении)</i>"
+        )
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="📱 Открыть WebApp Статистику", web_app=WebAppInfo(url="https://core.telegram.org/bots/webapps"))]
+        ])
+        await message.answer(text, reply_markup=kb, parse_mode="HTML")
+
+@dp.message(F.text.in_(["🌐 Мои прокси", "💬 Чаты", "🛒 Заказы", "🏷 Товары", "💳 Транзакции"]))
 async def placeholders(message: Message):
     if message.from_user.id != ADMIN_ID: return
     await message.answer("Раздел в разработке.")
@@ -166,7 +188,6 @@ async def placeholders(message: Message):
 async def callback_router(callback: CallbackQuery, state: FSMContext):
     data = callback.data
     
-    # Обработка переключения 3-х страниц настроек
     if data.startswith("set_page_"):
         page_num = int(data.split("_")[2])
         await callback.message.edit_text("⚙️ <b>Настройки аккаунта:</b>", reply_markup=settings_page(page_num), parse_mode="HTML")
@@ -201,7 +222,6 @@ async def callback_router(callback: CallbackQuery, state: FSMContext):
     elif data == "stub":
         await callback.answer("Функция в разработке", show_alert=False)
 
-# FSM Состояния
 @dp.message(BotStates.waiting_for_token)
 async def process_token(message: Message, state: FSMContext):
     settings_state["account_connected"] = True
@@ -239,7 +259,6 @@ async def process_promo_activation(message: Message, state: FSMContext):
         await message.answer("❌ Неверный или несуществующий промокод.")
     await state.clear()
 
-# --- Фейковый веб-сервер ---
 async def handle_ping(request):
     return web.Response(text="Bot is running!")
 
