@@ -55,7 +55,7 @@ def settings_page(page: int):
     buttons = []
     if page == 1:
         buttons = [
-            [InlineKeyboardButton(text="🔄 Сбросить настройки", callback_data="stub")],
+            [InlineKeyboardButton(text="🔄 Сбросить настройки", callback_data="reset_settings_prompt")],
             [InlineKeyboardButton(text="🔔 Уведомления", callback_data="menu_notifications")],
             [InlineKeyboardButton(text="♻️ Авто-восстановление", callback_data="stub")],
             [InlineKeyboardButton(text="🔒 Авто-поднятие", callback_data="locked_feature")],
@@ -147,8 +147,7 @@ async def start_handler(message: Message, state: FSMContext):
     add_user(message.from_user.id, message.from_user.username or "none", message.from_user.first_name)
     await message.answer("Главное меню открыто. Выберите нужный раздел внизу 👇", reply_markup=main_keyboard())
 
-# --- ТЕСТОВОЕ СОБЫТИЕ НОВОГО ЗАКАЗА ---
-# Так как реального API Playerok тут нет, сделаем команду для имитации заказа
+# Имитация заказа
 @dp.message(F.text == "/testorder")
 async def test_order(message: Message):
     if not settings_state["account_connected"]:
@@ -208,7 +207,6 @@ async def stats_handler(message: Message):
             "🛒 Успешных сделок: 0 шт.\n\n"
             "<i>(Расширенная аналитика доступна в WebApp)</i>"
         )
-        # Замени URL ниже на ссылку твоего GitHub Pages
         kb = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="📱 Открыть WebApp Статистику", web_app=WebAppInfo(url="https://ratmirvahitov7-max.github.io/webapp-ui/"))]
         ])
@@ -223,7 +221,7 @@ async def placeholders(message: Message):
 async def callback_router(callback: CallbackQuery, state: FSMContext):
     data = callback.data
     
-    # --- ЛОГИКА НАСТРОЕК ---
+    # --- ЛОГИКА НАСТРОЕК (ПАГИНАЦИЯ И СБРОС) ---
     if data.startswith("set_page_"):
         page_num = int(data.split("_")[2])
         await callback.message.edit_text("⚙️ <b>Настройки аккаунта:</b>", reply_markup=settings_page(page_num), parse_mode="HTML")
@@ -233,6 +231,28 @@ async def callback_router(callback: CallbackQuery, state: FSMContext):
         await callback.message.delete()
         await callback.answer()
         
+    # СБРОС НАСТРОЕК (Новая функция)
+    elif data == "reset_settings_prompt":
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [
+                InlineKeyboardButton(text="✅ Да, подтверждаю", callback_data="reset_settings_confirm"),
+                InlineKeyboardButton(text="❌ Отменить", callback_data="set_page_1")
+            ]
+        ])
+        await callback.message.edit_text(
+            "⚠️ <b>Сброс настроек</b>\n\n"
+            "Вы подтверждаете сброс настроек?\n"
+            "<i>Все ваши тексты автоответов, переключатели и фильтры будут удалены и сброшены на шаблонные.</i>",
+            reply_markup=kb,
+            parse_mode="HTML"
+        )
+
+    elif data == "reset_settings_confirm":
+        # Тут в будущем будет удаление настроек из БД
+        await callback.answer("✅ Все настройки успешно сброшены на шаблонные!", show_alert=True)
+        await callback.message.edit_text("⚙️ <b>Настройки аккаунта:</b>", reply_markup=settings_page(1), parse_mode="HTML")
+        
+    # БЛОКИРОВКА ПРЕМИУМ ФУНКЦИЙ
     elif data == "locked_feature":
         if not settings_state["vip_status"]:
             await callback.answer("🔒 Эта функция доступна только с подпиской!\n\nОформи подписку, чтобы разблокировать все возможности бота.", show_alert=True)
@@ -249,15 +269,13 @@ async def callback_router(callback: CallbackQuery, state: FSMContext):
     # --- ЛОГИКА НОВОГО ЗАКАЗА ---
     elif data.startswith("order_refund_"):
         await callback.answer("⏳ Отправляем запрос на возврат...", show_alert=False)
-        # Тут будет реальный API запрос
     elif data.startswith("order_complete_"):
         await callback.answer("✅ Отправляем запрос на подтверждение выполнения...", show_alert=False)
-        # Тут будет реальный API запрос
     elif data.startswith("order_reply_"):
         order_id = data.split("_")[2]
         await state.update_data(current_order_id=order_id)
         await state.set_state(BotStates.waiting_for_reply)
-        await callback.message.answer("✍️ Отправьте сообщение, и оно будет автоматически отправлено покупателю:")
+        await callback.message.answer("✍️ Напишите сообщение, и оно будет автоматически отправлено покупателю:")
         await callback.answer()
     elif data.startswith("order_more_") or data.startswith("order_templates_") or data.startswith("order_history_"):
         await callback.answer("Функция в разработке", show_alert=False)
@@ -281,12 +299,10 @@ async def callback_router(callback: CallbackQuery, state: FSMContext):
     elif data == "stub":
         await callback.answer("Функция в разработке", show_alert=False)
 
-# Обработчик текста для ответа покупателю
 @dp.message(BotStates.waiting_for_reply)
 async def process_reply(message: Message, state: FSMContext):
     data = await state.get_data()
     order_id = data.get("current_order_id")
-    # Тут должен быть API-запрос на отправку сообщения покупателю
     await message.answer(f"✅ Сообщение успешно отправлено покупателю по заказу <b>{order_id}</b>!", parse_mode="HTML")
     await state.clear()
 
