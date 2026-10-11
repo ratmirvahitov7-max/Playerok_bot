@@ -2,7 +2,10 @@ import asyncio
 import os
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import CommandStart
-from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, WebAppInfo
+from aiogram.types import (
+    Message, ReplyKeyboardMarkup, KeyboardButton, 
+    InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, WebAppInfo
+)
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiohttp import web
@@ -14,20 +17,34 @@ dp = Dispatcher()
 
 ADMIN_ID = 8158413794  
 
-# --- ГЛОБАЛЬНЫЕ НАСТРОЙКИ ---
+# --- ГЛОБАЛЬНЫЕ НАСТРОЙКИ (ТЕПЕРЬ И С АВТООТВЕТЧИКОМ) ---
 settings_state = {
     "account_connected": False,
     "token": None,
     "vip_status": False,
     "notifications": {
-        "global": True, "new_order": True, "new_message": True, "new_review": True,
-        "order_confirmed": True, "used_commands": True, "lot_restored": True,
-        "system_msg": True, "out_of_stock": True, "new_problem": True, "support_refund": True
+        "global": True, 
+        "new_order": True, 
+        "new_message": True, 
+        "new_review": True,
+        "order_confirmed": True, 
+        "used_commands": True, 
+        "lot_restored": True,
+        "system_msg": True, 
+        "out_of_stock": True, 
+        "new_problem": True, 
+        "support_refund": True
     },
     "auto_restore": {
         "global": False,
         "main_filter": True,
         "scan_completed": True
+    },
+    "auto_reply": {
+        "on_purchase": True,
+        "on_refund": False,
+        "on_support_refund": False,
+        "on_review": False
     }
 }
 promocodes_db = {} 
@@ -55,10 +72,20 @@ def main_keyboard():
 def profile_keyboard():
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="💰 Пополнить", callback_data="stub"), InlineKeyboardButton(text="💎 Подписка", callback_data="stub")],
-            [InlineKeyboardButton(text="💸 Перевести баланс", callback_data="stub")],
-            [InlineKeyboardButton(text="🧾 Мои инвойсы", callback_data="stub"), InlineKeyboardButton(text="📝 Мои посты", callback_data="stub")],
-            [InlineKeyboardButton(text="▶️ Активировать промокод", callback_data="activate_promo")]
+            [
+                InlineKeyboardButton(text="💰 Пополнить", callback_data="stub"), 
+                InlineKeyboardButton(text="💎 Подписка", callback_data="stub")
+            ],
+            [
+                InlineKeyboardButton(text="💸 Перевести баланс", callback_data="stub")
+            ],
+            [
+                InlineKeyboardButton(text="🧾 Мои инвойсы", callback_data="stub"), 
+                InlineKeyboardButton(text="📝 Мои посты", callback_data="stub")
+            ],
+            [
+                InlineKeyboardButton(text="▶️ Активировать промокод", callback_data="activate_promo")
+            ]
         ]
     )
 
@@ -70,7 +97,7 @@ def settings_page(page: int):
             [InlineKeyboardButton(text="🔔 Уведомления", callback_data="menu_notifications")],
             [InlineKeyboardButton(text="♻️ Авто-восстановление", callback_data="menu_auto_restore")],
             [InlineKeyboardButton(text="🔒 Авто-поднятие", callback_data="locked_feature")],
-            [InlineKeyboardButton(text="💬 Автоответчик", callback_data="stub")],
+            [InlineKeyboardButton(text="💬 Автоответчик", callback_data="menu_auto_reply")],
             [InlineKeyboardButton(text="🤖 Авто-выдача", callback_data="menu_autodelivery")],
             [InlineKeyboardButton(text="🧩 Плагины", callback_data="stub")],
             [InlineKeyboardButton(text="⚙️ Переключатели", callback_data="stub")],
@@ -105,29 +132,54 @@ def settings_page(page: int):
         InlineKeyboardButton(text=f"{page} / 3", callback_data="ignore"),
         InlineKeyboardButton(text="➡️", callback_data=f"set_page_{next_page}")
     ])
-    buttons.append([InlineKeyboardButton(text="🔙 Назад", callback_data="close_menu")])
+    
+    buttons.append([
+        InlineKeyboardButton(text="🔙 Назад", callback_data="close_menu")
+    ])
+    
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
-# МЕНЮ УВЕДОМЛЕНИЙ
+# --- ФУНКЦИЯ ДЛЯ ИКОНОК ---
 def get_status_icon(key: str, category: str = "notifications"):
     return "🟢" if settings_state[category][key] else "🔴"
 
+# --- МЕНЮ УВЕДОМЛЕНИЙ ---
 def notifications_keyboard():
     n = settings_state["notifications"]
     global_btn = InlineKeyboardButton(text=f"{get_status_icon('global')} Отправлять уведомления", callback_data="notif_toggle_global")
+    
     if not n["global"]:
-        return InlineKeyboardMarkup(inline_keyboard=[[global_btn], [InlineKeyboardButton(text="🔙 Назад", callback_data="set_page_1")]])
+        return InlineKeyboardMarkup(inline_keyboard=[
+            [global_btn], 
+            [InlineKeyboardButton(text="🔙 Назад", callback_data="set_page_1")]
+        ])
+        
     return InlineKeyboardMarkup(inline_keyboard=[
         [global_btn],
-        [InlineKeyboardButton(text=f"{get_status_icon('new_order')} Новый заказ", callback_data="notif_toggle_new_order"), InlineKeyboardButton(text=f"{get_status_icon('new_message')} Новое сообщение", callback_data="notif_toggle_new_message")],
-        [InlineKeyboardButton(text=f"{get_status_icon('new_review')} Новый отзыв", callback_data="notif_toggle_new_review"), InlineKeyboardButton(text=f"{get_status_icon('order_confirmed')} Заказ подтвержден", callback_data="notif_toggle_order_confirmed")],
-        [InlineKeyboardButton(text=f"{get_status_icon('used_commands')} Исп. команды", callback_data="notif_toggle_used_commands"), InlineKeyboardButton(text=f"{get_status_icon('lot_restored')} Лот восстановлен", callback_data="notif_toggle_lot_restored")],
-        [InlineKeyboardButton(text=f"{get_status_icon('system_msg')} Системные сообщ.", callback_data="notif_toggle_system_msg"), InlineKeyboardButton(text=f"{get_status_icon('out_of_stock')} Товар закончился", callback_data="notif_toggle_out_of_stock")],
-        [InlineKeyboardButton(text=f"{get_status_icon('new_problem')} Новая проблема", callback_data="notif_toggle_new_problem"), InlineKeyboardButton(text=f"{get_status_icon('support_refund')} Возврат поддерж.", callback_data="notif_toggle_support_refund")],
+        [
+            InlineKeyboardButton(text=f"{get_status_icon('new_order')} Новый заказ", callback_data="notif_toggle_new_order"), 
+            InlineKeyboardButton(text=f"{get_status_icon('new_message')} Новое сообщение", callback_data="notif_toggle_new_message")
+        ],
+        [
+            InlineKeyboardButton(text=f"{get_status_icon('new_review')} Новый отзыв", callback_data="notif_toggle_new_review"), 
+            InlineKeyboardButton(text=f"{get_status_icon('order_confirmed')} Заказ подтвержден", callback_data="notif_toggle_order_confirmed")
+        ],
+        [
+            InlineKeyboardButton(text=f"{get_status_icon('used_commands')} Исп. команды", callback_data="notif_toggle_used_commands"), 
+            InlineKeyboardButton(text=f"{get_status_icon('lot_restored')} Лот восстановлен", callback_data="notif_toggle_lot_restored")
+        ],
+        [
+            InlineKeyboardButton(text=f"{get_status_icon('system_msg')} Системные сообщ.", callback_data="notif_toggle_system_msg"), 
+            InlineKeyboardButton(text=f"{get_status_icon('out_of_stock')} Товар закончился", callback_data="notif_toggle_out_of_stock")
+        ],
+        [
+            InlineKeyboardButton(text=f"{get_status_icon('new_problem')} Новая проблема", callback_data="notif_toggle_new_problem"), 
+            InlineKeyboardButton(text=f"{get_status_icon('support_refund')} Возврат поддерж.", callback_data="notif_toggle_support_refund")
+        ],
         [InlineKeyboardButton(text="🔙 Назад", callback_data="set_page_1")]
     ])
 
-# МЕНЮ АВТО-ВОССТАНОВЛЕНИЯ
+# --- МЕНЮ АВТО-ВОССТАНОВЛЕНИЯ ---
 def auto_restore_keyboard():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text=f"{get_status_icon('global', 'auto_restore')} Авто-восстановление", callback_data="ar_toggle_global")],
@@ -143,12 +195,44 @@ def auto_restore_keyboard():
         [InlineKeyboardButton(text="🔙 Назад", callback_data="set_page_1")]
     ])
 
+# --- НОВОЕ МЕНЮ: АВТООТВЕТЧИК ---
+def auto_reply_keyboard():
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text=f"{get_status_icon('on_purchase', 'auto_reply')} При покупке товара", callback_data="reply_toggle_on_purchase")
+        ],
+        [
+            InlineKeyboardButton(text=f"{get_status_icon('on_refund', 'auto_reply')} При возврате", callback_data="reply_toggle_on_refund")
+        ],
+        [
+            InlineKeyboardButton(text=f"{get_status_icon('on_support_refund', 'auto_reply')} При возврате поддержкой", callback_data="reply_toggle_on_support_refund")
+        ],
+        [
+            InlineKeyboardButton(text="✏️ Настроить тексты ответов", callback_data="stub")
+        ],
+        [
+            InlineKeyboardButton(text="🔙 Назад", callback_data="set_page_1")
+        ]
+    ])
+
 def order_keyboard(order_id: str):
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="📦 Заказ", url=f"https://playerok.com/orders/{order_id}"), InlineKeyboardButton(text="💬 Чат", url=f"https://playerok.com/chat/{order_id}"), InlineKeyboardButton(text="🛒 Товар", url=f"https://playerok.com/items/{order_id}")],
-            [InlineKeyboardButton(text="💸 Возврат", callback_data=f"order_refund_{order_id}"), InlineKeyboardButton(text="✅ Выполнил", callback_data=f"order_complete_{order_id}"), InlineKeyboardButton(text="➕ Больше", callback_data=f"order_more_{order_id}")],
-            [InlineKeyboardButton(text="📋 Заготовки", callback_data=f"order_templates_{order_id}"), InlineKeyboardButton(text="🕰 История", callback_data=f"order_history_{order_id}"), InlineKeyboardButton(text="✍️ Ответ", callback_data=f"order_reply_{order_id}")]
+            [
+                InlineKeyboardButton(text="📦 Заказ", url=f"https://playerok.com/orders/{order_id}"), 
+                InlineKeyboardButton(text="💬 Чат", url=f"https://playerok.com/chat/{order_id}"), 
+                InlineKeyboardButton(text="🛒 Товар", url=f"https://playerok.com/items/{order_id}")
+            ],
+            [
+                InlineKeyboardButton(text="💸 Возврат", callback_data=f"order_refund_{order_id}"), 
+                InlineKeyboardButton(text="✅ Выполнил", callback_data=f"order_complete_{order_id}"), 
+                InlineKeyboardButton(text="➕ Больше", callback_data=f"order_more_{order_id}")
+            ],
+            [
+                InlineKeyboardButton(text="📋 Заготовки", callback_data=f"order_templates_{order_id}"), 
+                InlineKeyboardButton(text="🕰 История", callback_data=f"order_history_{order_id}"), 
+                InlineKeyboardButton(text="✍️ Ответ", callback_data=f"order_reply_{order_id}")
+            ]
         ]
     )
 
@@ -165,7 +249,9 @@ def autodelivery_keyboard():
     ])
 
 def admin_keyboard():
-    return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🎟 Создать промокод", callback_data="create_promo")]])
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🎟 Создать промокод", callback_data="create_promo")]
+    ])
 
 @dp.message(CommandStart())
 async def start_handler(message: Message, state: FSMContext):
@@ -179,8 +265,14 @@ async def test_order(message: Message):
     if not settings_state["account_connected"]:
         await message.answer("Сначала подключите аккаунт в '📦 Мои аккаунты'")
         return
+        
     order_id = "1f1c582d"
-    text = (f"🟢 (SellGemina) <b>Новый заказ!</b> Товар: LOVABLE PRO\n\n👤 Покупатель: HukuTuYc\n💰 Сумма: 990 ₽\n🆔 ID: {order_id}")
+    text = (
+        f"🟢 (SellGemina) <b>Новый заказ!</b> Товар: LOVABLE PRO\n\n"
+        f"👤 Покупатель: HukuTuYc\n"
+        f"💰 Сумма: 990 ₽\n"
+        f"🆔 ID: {order_id}"
+    )
     await message.answer(text, reply_markup=order_keyboard(order_id), parse_mode="HTML")
 
 @dp.message(F.text.contains("Настройки"))
@@ -192,7 +284,14 @@ async def settings_handler(message: Message):
 async def profile_handler(message: Message):
     if message.from_user.id != ADMIN_ID: return
     vip_text = "Присутствует ✅" if settings_state["vip_status"] else "Отсутствует ❌"
-    text = (f"👤 <b>Мой профиль</b>\n\n🆔 Ваш ID: <code>{message.from_user.id}</code>\n💎 Подписка: {vip_text}\n\n📊 <b>Статистика</b>\n➖ Баланс: 0 RUB\n➖ Подключено аккаунтов: {1 if settings_state['account_connected'] else 0} / 1")
+    text = (
+        f"👤 <b>Мой профиль</b>\n\n"
+        f"🆔 Ваш ID: <code>{message.from_user.id}</code>\n"
+        f"💎 Подписка: {vip_text}\n\n"
+        f"📊 <b>Статистика</b>\n"
+        f"➖ Баланс: 0 RUB\n"
+        f"➖ Подключено аккаунтов: {1 if settings_state['account_connected'] else 0} / 1"
+    )
     await message.answer(text, reply_markup=profile_keyboard(), parse_mode="HTML")
 
 @dp.message(F.text.contains("Админ-панель"))
@@ -214,12 +313,23 @@ async def accounts_handler(message: Message):
 @dp.message(F.text.contains("Статистика"))
 async def stats_handler(message: Message):
     if message.from_user.id != ADMIN_ID: return
+    
     if not settings_state["account_connected"]:
-        kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔌 Подключить аккаунт Playerok", callback_data="bind_account")]])
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔌 Подключить аккаунт Playerok", callback_data="bind_account")]
+        ])
         await message.answer("⚠️ <b>Доступ закрыт</b>\n\nДля просмотра статистики необходимо сначала подключить аккаунт Playerok.", reply_markup=kb, parse_mode="HTML")
     else:
-        text = ("📊 <b>Статистика работы бота</b>\n\n📈 <b>За сегодня:</b>\n💸 Заработано: 0 ₽\n🛒 Успешных сделок: 0 шт.\n\n<i>(Расширенная аналитика доступна в WebApp)</i>")
-        kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="📱 Открыть WebApp Статистику", web_app=WebAppInfo(url="https://ratmirvahitov7-max.github.io/webapp-ui/"))]])
+        text = (
+            "📊 <b>Статистика работы бота</b>\n\n"
+            "📈 <b>За сегодня:</b>\n"
+            "💸 Заработано: 0 ₽\n"
+            "🛒 Успешных сделок: 0 шт.\n\n"
+            "<i>(Расширенная аналитика доступна в WebApp)</i>"
+        )
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="📱 Открыть WebApp Статистику", web_app=WebAppInfo(url="https://ratmirvahitov7-max.github.io/webapp-ui/"))]
+        ])
         await message.answer(text, reply_markup=kb, parse_mode="HTML")
 
 @dp.message(F.text.in_(["🌐 Мои прокси", "💬 Чаты", "🛒 Заказы", "🏷 Товары", "💳 Транзакции"]))
@@ -231,6 +341,7 @@ async def placeholders(message: Message):
 async def callback_router(callback: CallbackQuery, state: FSMContext):
     data = callback.data
     
+    # --- НАВИГАЦИЯ ПО НАСТРОЙКАМ ---
     if data.startswith("set_page_"):
         page_num = int(data.split("_")[2])
         await callback.message.edit_text("⚙️ <b>Настройки аккаунта:</b>", reply_markup=settings_page(page_num), parse_mode="HTML")
@@ -240,39 +351,52 @@ async def callback_router(callback: CallbackQuery, state: FSMContext):
         await callback.message.delete()
         await callback.answer()
         
+    # --- СБРОС НАСТРОЕК ---
     elif data == "reset_settings_prompt":
         kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="✅ Да, подтверждаю", callback_data="reset_settings_confirm"), InlineKeyboardButton(text="❌ Отменить", callback_data="set_page_1")]
+            [
+                InlineKeyboardButton(text="✅ Да, подтверждаю", callback_data="reset_settings_confirm"), 
+                InlineKeyboardButton(text="❌ Отменить", callback_data="set_page_1")
+            ]
         ])
         await callback.message.edit_text("⚠️ <b>Сброс настроек</b>\n\nВы подтверждаете сброс настроек?", reply_markup=kb, parse_mode="HTML")
 
     elif data == "reset_settings_confirm":
-        for key in settings_state["notifications"]: settings_state["notifications"][key] = True
-        for key in settings_state["auto_restore"]: settings_state["auto_restore"][key] = True
+        # Сброс всех переключателей в стандартные
+        for key in settings_state["notifications"]: 
+            settings_state["notifications"][key] = True
+        for key in settings_state["auto_restore"]: 
+            settings_state["auto_restore"][key] = True
+        for key in settings_state["auto_reply"]: 
+            settings_state["auto_reply"][key] = False
+        settings_state["auto_reply"]["on_purchase"] = True
+        
         await callback.answer("✅ Настройки сброшены!", show_alert=True)
         await callback.message.edit_text("⚙️ <b>Настройки аккаунта:</b>", reply_markup=settings_page(1), parse_mode="HTML")
         
+    # --- БЛОКИРОВКА ФУНКЦИЙ VIP ---
     elif data == "locked_feature":
         if not settings_state["vip_status"]:
             await callback.answer("🔒 Эта функция доступна только с подпиской!\n\nОформи подписку, чтобы разблокировать все возможности.", show_alert=True)
         else:
             await callback.answer("✅ Доступ разрешен", show_alert=False)
 
-    # УВЕДОМЛЕНИЯ
+    # --- УВЕДОМЛЕНИЯ ---
     elif data == "menu_notifications":
         await callback.message.edit_text("⚙️ <b>Настройки уведомлений:</b>", reply_markup=notifications_keyboard(), parse_mode="HTML")
+        
     elif data.startswith("notif_toggle_"):
         key = data.replace("notif_toggle_", "")
         settings_state["notifications"][key] = not settings_state["notifications"][key]
         await callback.message.edit_reply_markup(reply_markup=notifications_keyboard())
         await callback.answer()
 
-    # АВТО-ВОССТАНОВЛЕНИЕ
+    # --- АВТО-ВОССТАНОВЛЕНИЕ ---
     elif data == "menu_auto_restore":
-        # Считаем количество включенных "фильтров" (основной)
         active_filters = 1 if settings_state["auto_restore"]["main_filter"] else 0
         text = f"♻️ <b>Авто-восстановление</b>\n\nФильтров: 1\nАктивных: {active_filters}"
         await callback.message.edit_text(text, reply_markup=auto_restore_keyboard(), parse_mode="HTML")
+        
     elif data.startswith("ar_toggle_"):
         key = data.replace("ar_toggle_", "")
         settings_state["auto_restore"][key] = not settings_state["auto_restore"][key]
@@ -281,15 +405,34 @@ async def callback_router(callback: CallbackQuery, state: FSMContext):
         await callback.message.edit_text(text, reply_markup=auto_restore_keyboard(), parse_mode="HTML")
         await callback.answer()
 
+    # --- АВТООТВЕТЧИК (НОВОЕ) ---
+    elif data == "menu_auto_reply":
+        await callback.message.edit_text(
+            "💬 <b>Автоответчик</b>\n\nВыберите события, на которые бот будет автоматически отвечать заготовленным текстом:", 
+            reply_markup=auto_reply_keyboard(), 
+            parse_mode="HTML"
+        )
+        
+    elif data.startswith("reply_toggle_"):
+        key = data.replace("reply_toggle_", "")
+        settings_state["auto_reply"][key] = not settings_state["auto_reply"][key]
+        await callback.message.edit_reply_markup(reply_markup=auto_reply_keyboard())
+        await callback.answer("Состояние автоответчика изменено")
+
+    # --- ОСТАЛЬНЫЕ МЕНЮ ---
     elif data == "menu_templates":
         await callback.message.edit_text("📝 <b>Заготовки ответов:</b>", reply_markup=sub_menu_keyboard(), parse_mode="HTML")
+        
     elif data == "menu_autodelivery":
         await callback.message.edit_text("🤖 <b>Авто-выдача:</b>", reply_markup=autodelivery_keyboard(), parse_mode="HTML")
     
+    # --- ЛОГИКА НОВОГО ЗАКАЗА ---
     elif data.startswith("order_refund_"):
         await callback.answer("⏳ Отправляем запрос на возврат...", show_alert=False)
+        
     elif data.startswith("order_complete_"):
         await callback.answer("✅ Отправляем запрос на подтверждение...", show_alert=False)
+        
     elif data.startswith("order_reply_"):
         order_id = data.split("_")[2]
         await state.update_data(current_order_id=order_id)
@@ -297,6 +440,7 @@ async def callback_router(callback: CallbackQuery, state: FSMContext):
         await callback.message.answer("✍️ Напишите сообщение покупателю:")
         await callback.answer()
     
+    # --- ОБЩИЕ КОМАНДЫ ---
     elif data == "bind_account":
         await callback.message.answer("🔑 Отправьте ваш Token:")
         await state.set_state(BotStates.waiting_for_token)
@@ -376,4 +520,3 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-    
