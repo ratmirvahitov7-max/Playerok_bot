@@ -12,7 +12,6 @@ dp = Dispatcher()
 
 ADMIN_ID = 8158413794  
 
-# Временная память 
 settings_state = {
     "delivery": False,
     "bump": False,
@@ -30,8 +29,8 @@ def main_keyboard():
     )
 
 def settings_keyboard():
-    delivery_text = "Вкл ✅" if settings_state["delivery"] else "Выкл ❌"
-    bump_text = "Вкл ✅" if settings_state["bump"] else "Выкл ❌"
+    delivery_text = "Вкл" if settings_state["delivery"] else "Выкл"
+    bump_text = "Вкл" if settings_state["bump"] else "Выкл"
     
     return InlineKeyboardMarkup(
         inline_keyboard=[
@@ -79,6 +78,7 @@ async def settings_handler(message: Message):
 
 @dp.callback_query(F.data.in_(["toggle_delivery", "toggle_bump", "bind_account"]))
 async def callbacks_handler(callback: CallbackQuery):
+    # Логика Авто-выдачи
     if callback.data == "toggle_delivery":
         if not settings_state["account_connected"]:
             await callback.answer("Сначала подключите аккаунт Playerok!", show_alert=True)
@@ -87,18 +87,29 @@ async def callbacks_handler(callback: CallbackQuery):
         settings_state["delivery"] = not settings_state["delivery"]
         await callback.message.edit_reply_markup(reply_markup=settings_keyboard())
         
+        webapp_btn = InlineKeyboardMarkup(inline_keyboard=[
+            # Временная ссылка-заглушка на документацию WebApp, пока не сделаем свой сайт
+            [InlineKeyboardButton(text="📱 Настроить товары", web_app=WebAppInfo(url="https://core.telegram.org/bots/webapps"))]
+        ])
+        await callback.message.answer("Зайдите в мини-приложение, чтобы добавить текст и файлы для авто-выдачи.", reply_markup=webapp_btn)
+        await callback.answer()
+        
+    # Логика Авто-поднятия
     elif callback.data == "toggle_bump":
         if not settings_state["account_connected"]:
             await callback.answer("Сначала подключите аккаунт Playerok!", show_alert=True)
             return
             
-        # Выдаем сообщение и кнопку для WebApp
+        settings_state["bump"] = not settings_state["bump"]
+        await callback.message.edit_reply_markup(reply_markup=settings_keyboard())
+        
         webapp_btn = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="📱 Открыть мини-приложение", web_app=WebAppInfo(url="https://playerok.com"))]
+            [InlineKeyboardButton(text="📱 Выбрать товары", web_app=WebAppInfo(url="https://core.telegram.org/bots/webapps"))]
         ])
-        await callback.message.answer("Зайдите в мини-приложение и настройте, на какие товары будет работать автоподнятие.", reply_markup=webapp_btn)
+        await callback.message.answer("Зайдите в мини-приложение и отметьте товары для авто-поднятия.", reply_markup=webapp_btn)
         await callback.answer()
         
+    # Логика привязки аккаунта
     elif callback.data == "bind_account":
         settings_state["account_connected"] = True
         await callback.message.edit_reply_markup(reply_markup=settings_keyboard())
