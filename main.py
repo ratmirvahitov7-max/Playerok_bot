@@ -14,7 +14,6 @@ dp = Dispatcher()
 
 ADMIN_ID = 8158413794  
 
-# Временная база данных в памяти
 settings_state = {
     "account_connected": False,
     "token": None
@@ -28,7 +27,6 @@ class BotStates(StatesGroup):
     waiting_for_promo_discount = State()
     waiting_for_promo_activation = State()
 
-# --- Главное меню ---
 def main_keyboard():
     return ReplyKeyboardMarkup(
         keyboard=[
@@ -51,36 +49,56 @@ def profile_keyboard():
         ]
     )
 
-# --- Настройки (Страница 1) ---
-def settings_page_1():
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🔔 Уведомления", callback_data="menu_notifications")],
-        [InlineKeyboardButton(text="🤖 Авто-выдача", callback_data="menu_autodelivery")],
-        [InlineKeyboardButton(text="🚀 Авто-поднятие", callback_data="stub")],
-        [InlineKeyboardButton(text="📝 Заготовки ответов", callback_data="menu_templates")],
-        # Тот самый ряд с тремя кнопками
-        [
-            InlineKeyboardButton(text="⬅️", callback_data="set_page_2"),
-            InlineKeyboardButton(text="1 / 2", callback_data="ignore"),
-            InlineKeyboardButton(text="➡️", callback_data="set_page_2")
-        ],
-        # Отдельная кнопка назад
-        [InlineKeyboardButton(text="🔙 Назад", callback_data="close_menu")]
-    ])
+# --- Генератор страниц настроек (Все функции из видео) ---
+def settings_page(page: int):
+    buttons = []
+    if page == 1:
+        buttons = [
+            [InlineKeyboardButton(text="🔄 Сбросить настройки", callback_data="stub")],
+            [InlineKeyboardButton(text="🔔 Уведомления", callback_data="menu_notifications")],
+            [InlineKeyboardButton(text="♻️ Авто-восстановление", callback_data="stub")],
+            [InlineKeyboardButton(text="🚀 Авто-поднятие", callback_data="stub")],
+            [InlineKeyboardButton(text="💬 Автоответчик", callback_data="stub")],
+            [InlineKeyboardButton(text="🤖 Авто-выдача", callback_data="menu_autodelivery")],
+            [InlineKeyboardButton(text="🧩 Плагины", callback_data="stub")],
+            [InlineKeyboardButton(text="⚙️ Переключатели", callback_data="stub")]
+        ]
+    elif page == 2:
+        buttons = [
+            [InlineKeyboardButton(text="🔒 Подтверждение заказов", callback_data="stub")],
+            [InlineKeyboardButton(text="📝 Заготовки ответов", callback_data="menu_templates")],
+            [InlineKeyboardButton(text="⛔️ Черный список", callback_data="stub")],
+            [InlineKeyboardButton(text="💸 Авто-вывод", callback_data="stub")],
+            [InlineKeyboardButton(text="👋 Приветственное", callback_data="stub")],
+            [InlineKeyboardButton(text="✅ Авто-выполнение", callback_data="stub")],
+            [InlineKeyboardButton(text="👀 Мониторинг отзывов", callback_data="stub")],
+            [InlineKeyboardButton(text="↩️ Ответ на возврат", callback_data="stub")]
+        ]
+    elif page == 3:
+        buttons = [
+            [InlineKeyboardButton(text="⚠️ Авто-ответ на проблему", callback_data="stub")],
+            [InlineKeyboardButton(text="⏰ Напоминание о подтверждении", callback_data="stub")],
+            [InlineKeyboardButton(text="⭐ Напоминание об отзыве", callback_data="stub")],
+            [InlineKeyboardButton(text="🔗 Привязанные чаты", callback_data="stub")],
+            [InlineKeyboardButton(text="🖼 Фотографии", callback_data="stub")],
+            [InlineKeyboardButton(text="📥 Импорт настроек", callback_data="stub")],
+            [InlineKeyboardButton(text="📤 Экспорт настроек", callback_data="stub")]
+        ]
 
-# --- Настройки (Страница 2) ---
-def settings_page_2():
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="⛔️ Черный список", callback_data="stub")],
-        [InlineKeyboardButton(text="🔒 Подтверждение заказов", callback_data="stub")],
-        [InlineKeyboardButton(text="⚙️ Переключатели", callback_data="stub")],
-        [
-            InlineKeyboardButton(text="⬅️", callback_data="set_page_1"),
-            InlineKeyboardButton(text="2 / 2", callback_data="ignore"),
-            InlineKeyboardButton(text="➡️", callback_data="set_page_1")
-        ],
-        [InlineKeyboardButton(text="🔙 Назад", callback_data="close_menu")]
+    # Логика круговой пагинации (1 -> 2 -> 3 -> 1)
+    prev_page = 3 if page == 1 else page - 1
+    next_page = 1 if page == 3 else page + 1
+    
+    # Тот самый ряд с тремя кнопками
+    buttons.append([
+        InlineKeyboardButton(text="⬅️", callback_data=f"set_page_{prev_page}"),
+        InlineKeyboardButton(text=f"{page} / 3", callback_data="ignore"),
+        InlineKeyboardButton(text="➡️", callback_data=f"set_page_{next_page}")
     ])
+    # Отдельная кнопка назад
+    buttons.append([InlineKeyboardButton(text="🔙 Назад", callback_data="close_menu")])
+    
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 def sub_menu_keyboard():
     return InlineKeyboardMarkup(inline_keyboard=[
@@ -103,7 +121,6 @@ def admin_keyboard():
         [InlineKeyboardButton(text="🎟 Создать промокод", callback_data="create_promo")]
     ])
 
-# --- Обработчики текста ---
 @dp.message(CommandStart())
 async def start_handler(message: Message, state: FSMContext):
     if message.from_user.id != ADMIN_ID: return
@@ -114,7 +131,7 @@ async def start_handler(message: Message, state: FSMContext):
 @dp.message(F.text.contains("Настройки"))
 async def settings_handler(message: Message):
     if message.from_user.id != ADMIN_ID: return
-    await message.answer("⚙️ <b>Настройки:</b>", reply_markup=settings_page_1(), parse_mode="HTML")
+    await message.answer("⚙️ <b>Настройки аккаунта:</b>", reply_markup=settings_page(1), parse_mode="HTML")
 
 @dp.message(F.text.contains("Профиль"))
 async def profile_handler(message: Message):
@@ -123,7 +140,6 @@ async def profile_handler(message: Message):
             f"📊 <b>Статистика</b>\n➖ Баланс: 0 RUB\n➖ Подключено аккаунтов: {1 if settings_state['account_connected'] else 0} / 1")
     await message.answer(text, reply_markup=profile_keyboard(), parse_mode="HTML")
 
-# Исправленный поиск Админ-панели (без привязки к точным эмодзи)
 @dp.message(F.text.contains("Админ-панель"))
 async def admin_panel_handler(message: Message):
     if message.from_user.id != ADMIN_ID: return
@@ -133,7 +149,8 @@ async def admin_panel_handler(message: Message):
 async def accounts_handler(message: Message):
     if message.from_user.id != ADMIN_ID: return
     if settings_state["account_connected"]:
-        text = "📦 <b>Всего аккаунтов: 1</b>\n\n🟢 <b>Playerok</b> (Активен)\n💰 Баланс: 1250 ₽ | ⭐️ 156 отзывов"
+        # Отображаем визуал из видео как заглушку, пока не готов реальный парсер
+        text = "📦 <b>Всего аккаунтов: 1</b>\n\n🟢 <b>SellGemina</b> | 1649.6 ₽ | ⭐️ 206✨\n\n<i>(Отображаются демонстрационные данные. Реальный парсер в разработке)</i>"
         kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="Удалить аккаунт", callback_data="stub")]])
     else:
         text = "📦 <b>Всего аккаунтов: 0</b>\n\nНет подключенных аккаунтов."
@@ -143,21 +160,20 @@ async def accounts_handler(message: Message):
 @dp.message(F.text.in_(["📊 Статистика", "🌐 Мои прокси", "💬 Чаты", "🛒 Заказы", "🏷 Товары", "💳 Транзакции"]))
 async def placeholders(message: Message):
     if message.from_user.id != ADMIN_ID: return
-    await message.answer("Раздел в разработке. Здесь будет подключен WebApp или списки.")
+    await message.answer("Раздел в разработке.")
 
-# --- Обработка Инлайн Кнопок ---
 @dp.callback_query()
 async def callback_router(callback: CallbackQuery, state: FSMContext):
     data = callback.data
     
-    if data == "set_page_1":
-        await callback.message.edit_text("⚙️ <b>Настройки:</b>", reply_markup=settings_page_1(), parse_mode="HTML")
-    elif data == "set_page_2":
-        await callback.message.edit_text("⚙️ <b>Настройки (стр 2):</b>", reply_markup=settings_page_2(), parse_mode="HTML")
+    # Обработка переключения 3-х страниц настроек
+    if data.startswith("set_page_"):
+        page_num = int(data.split("_")[2])
+        await callback.message.edit_text("⚙️ <b>Настройки аккаунта:</b>", reply_markup=settings_page(page_num), parse_mode="HTML")
     elif data == "ignore":
-        await callback.answer() # Пустая кнопка (номер страницы)
+        await callback.answer()
     elif data == "close_menu":
-        await callback.message.delete() # Удаляет сообщение с меню
+        await callback.message.delete()
         await callback.answer()
     
     elif data == "menu_notifications":
@@ -185,18 +201,18 @@ async def callback_router(callback: CallbackQuery, state: FSMContext):
     elif data == "stub":
         await callback.answer("Функция в разработке", show_alert=False)
 
-# --- FSM Машина (Токен и промокоды) ---
+# FSM Состояния
 @dp.message(BotStates.waiting_for_token)
 async def process_token(message: Message, state: FSMContext):
     settings_state["account_connected"] = True
     settings_state["token"] = message.text 
-    await message.answer("✅ <b>Токен принят!</b>\n\n⚠️ <i>Функция реального подключения к Playerok сейчас находится в доработке. Мы сохранили ваш токен и пока симулируем работу аккаунта для настройки меню.</i>\n\nЗайдите в '📦 Мои аккаунты', чтобы проверить статус.", parse_mode="HTML")
+    await message.answer("✅ <b>Токен принят!</b>\n\n⚠️ <i>Функция реального подключения к Playerok сейчас находится в доработке. Мы сохранили ваш токен и пока симулируем работу аккаунта.</i>\n\nЗайдите в '📦 Мои аккаунты', чтобы проверить.", parse_mode="HTML")
     await state.clear()
 
 @dp.message(BotStates.waiting_for_promo_name)
 async def process_promo_name(message: Message, state: FSMContext):
     await state.update_data(promo_name=message.text.upper())
-    await message.answer("Отлично. Теперь введите процент скидки (только число, например 10 или 15):")
+    await message.answer("Отлично. Теперь введите процент скидки (только число):")
     await state.set_state(BotStates.waiting_for_promo_discount)
 
 @dp.message(BotStates.waiting_for_promo_discount)
