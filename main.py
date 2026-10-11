@@ -14,10 +14,24 @@ dp = Dispatcher()
 
 ADMIN_ID = 8158413794  
 
+# --- ГЛОБАЛЬНЫЕ НАСТРОЙКИ (ТЕПЕРЬ С УВЕДОМЛЕНИЯМИ) ---
 settings_state = {
     "account_connected": False,
     "token": None,
-    "vip_status": False # Флаг наличия премиум подписки
+    "vip_status": False,
+    "notifications": {
+        "global": True,
+        "new_order": True,
+        "new_message": True,
+        "new_review": True,
+        "order_confirmed": True,
+        "used_commands": True,
+        "lot_restored": True,
+        "system_msg": True,
+        "out_of_stock": True,
+        "new_problem": True,
+        "support_refund": True
+    }
 }
 promocodes_db = {} 
 SUBSCRIPTION_PRICE = 499 
@@ -27,7 +41,7 @@ class BotStates(StatesGroup):
     waiting_for_promo_name = State()
     waiting_for_promo_discount = State()
     waiting_for_promo_activation = State()
-    waiting_for_reply = State() # Состояние для функции "Ответ" на заказ
+    waiting_for_reply = State() 
 
 def main_keyboard():
     return ReplyKeyboardMarkup(
@@ -97,7 +111,47 @@ def settings_page(page: int):
     buttons.append([InlineKeyboardButton(text="🔙 Назад", callback_data="close_menu")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
-# Клавиатура для нового заказа (3x3)
+# ДИНАМИЧЕСКАЯ КЛАВИАТУРА УВЕДОМЛЕНИЙ
+def get_status_icon(key: str):
+    return "🟢" if settings_state["notifications"][key] else "🔴"
+
+def notifications_keyboard():
+    n = settings_state["notifications"]
+    
+    global_btn = InlineKeyboardButton(text=f"{get_status_icon('global')} Отправлять уведомления", callback_data="notif_toggle_global")
+    
+    # Если глобальные уведомления выключены, остальные кнопки не показываем или показываем выключенными
+    if not n["global"]:
+        return InlineKeyboardMarkup(inline_keyboard=[
+            [global_btn],
+            [InlineKeyboardButton(text="🔙 Назад", callback_data="set_page_1")]
+        ])
+
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [global_btn],
+        [
+            InlineKeyboardButton(text=f"{get_status_icon('new_order')} Новый заказ", callback_data="notif_toggle_new_order"), 
+            InlineKeyboardButton(text=f"{get_status_icon('new_message')} Новое сообщение", callback_data="notif_toggle_new_message")
+        ],
+        [
+            InlineKeyboardButton(text=f"{get_status_icon('new_review')} Новый отзыв", callback_data="notif_toggle_new_review"), 
+            InlineKeyboardButton(text=f"{get_status_icon('order_confirmed')} Заказ подтвержден", callback_data="notif_toggle_order_confirmed")
+        ],
+        [
+            InlineKeyboardButton(text=f"{get_status_icon('used_commands')} Исп. команды", callback_data="notif_toggle_used_commands"), 
+            InlineKeyboardButton(text=f"{get_status_icon('lot_restored')} Лот восстановлен", callback_data="notif_toggle_lot_restored")
+        ],
+        [
+            InlineKeyboardButton(text=f"{get_status_icon('system_msg')} Системные сообщ.", callback_data="notif_toggle_system_msg"), 
+            InlineKeyboardButton(text=f"{get_status_icon('out_of_stock')} Товар закончился", callback_data="notif_toggle_out_of_stock")
+        ],
+        [
+            InlineKeyboardButton(text=f"{get_status_icon('new_problem')} Новая проблема", callback_data="notif_toggle_new_problem"), 
+            InlineKeyboardButton(text=f"{get_status_icon('support_refund')} Возврат поддерж.", callback_data="notif_toggle_support_refund")
+        ],
+        [InlineKeyboardButton(text="🔙 Назад", callback_data="set_page_1")]
+    ])
+
 def order_keyboard(order_id: str):
     return InlineKeyboardMarkup(
         inline_keyboard=[
@@ -147,7 +201,6 @@ async def start_handler(message: Message, state: FSMContext):
     add_user(message.from_user.id, message.from_user.username or "none", message.from_user.first_name)
     await message.answer("Главное меню открыто. Выберите нужный раздел внизу 👇", reply_markup=main_keyboard())
 
-# Имитация заказа
 @dp.message(F.text == "/testorder")
 async def test_order(message: Message):
     if not settings_state["account_connected"]:
@@ -195,21 +248,12 @@ async def accounts_handler(message: Message):
 @dp.message(F.text.contains("Статистика"))
 async def stats_handler(message: Message):
     if message.from_user.id != ADMIN_ID: return
-    
     if not settings_state["account_connected"]:
         kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔌 Подключить аккаунт Playerok", callback_data="bind_account")]])
         await message.answer("⚠️ <b>Доступ закрыт</b>\n\nДля просмотра статистики необходимо сначала подключить аккаунт Playerok.", reply_markup=kb, parse_mode="HTML")
     else:
-        text = (
-            "📊 <b>Статистика работы бота</b>\n\n"
-            "📈 <b>За сегодня:</b>\n"
-            "💸 Заработано: 0 ₽\n"
-            "🛒 Успешных сделок: 0 шт.\n\n"
-            "<i>(Расширенная аналитика доступна в WebApp)</i>"
-        )
-        kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="📱 Открыть WebApp Статистику", web_app=WebAppInfo(url="https://ratmirvahitov7-max.github.io/webapp-ui/"))]
-        ])
+        text = ("📊 <b>Статистика работы бота</b>\n\n📈 <b>За сегодня:</b>\n💸 Заработано: 0 ₽\n🛒 Успешных сделок: 0 шт.\n\n<i>(Расширенная аналитика доступна в WebApp)</i>")
+        kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="📱 Открыть WebApp Статистику", web_app=WebAppInfo(url="https://ratmirvahitov7-max.github.io/webapp-ui/"))]])
         await message.answer(text, reply_markup=kb, parse_mode="HTML")
 
 @dp.message(F.text.in_(["🌐 Мои прокси", "💬 Чаты", "🛒 Заказы", "🏷 Товары", "💳 Транзакции"]))
@@ -221,7 +265,6 @@ async def placeholders(message: Message):
 async def callback_router(callback: CallbackQuery, state: FSMContext):
     data = callback.data
     
-    # --- ЛОГИКА НАСТРОЕК (ПАГИНАЦИЯ И СБРОС) ---
     if data.startswith("set_page_"):
         page_num = int(data.split("_")[2])
         await callback.message.edit_text("⚙️ <b>Настройки аккаунта:</b>", reply_markup=settings_page(page_num), parse_mode="HTML")
@@ -231,42 +274,44 @@ async def callback_router(callback: CallbackQuery, state: FSMContext):
         await callback.message.delete()
         await callback.answer()
         
-    # СБРОС НАСТРОЕК (Новая функция)
     elif data == "reset_settings_prompt":
         kb = InlineKeyboardMarkup(inline_keyboard=[
-            [
-                InlineKeyboardButton(text="✅ Да, подтверждаю", callback_data="reset_settings_confirm"),
-                InlineKeyboardButton(text="❌ Отменить", callback_data="set_page_1")
-            ]
+            [InlineKeyboardButton(text="✅ Да, подтверждаю", callback_data="reset_settings_confirm"), InlineKeyboardButton(text="❌ Отменить", callback_data="set_page_1")]
         ])
-        await callback.message.edit_text(
-            "⚠️ <b>Сброс настроек</b>\n\n"
-            "Вы подтверждаете сброс настроек?\n"
-            "<i>Все ваши тексты автоответов, переключатели и фильтры будут удалены и сброшены на шаблонные.</i>",
-            reply_markup=kb,
-            parse_mode="HTML"
-        )
+        await callback.message.edit_text("⚠️ <b>Сброс настроек</b>\n\nВы подтверждаете сброс настроек?\n<i>Все ваши тексты автоответов и фильтры будут удалены.</i>", reply_markup=kb, parse_mode="HTML")
 
     elif data == "reset_settings_confirm":
-        # Тут в будущем будет удаление настроек из БД
+        # При сбросе возвращаем уведомления в True
+        for key in settings_state["notifications"]:
+            settings_state["notifications"][key] = True
         await callback.answer("✅ Все настройки успешно сброшены на шаблонные!", show_alert=True)
         await callback.message.edit_text("⚙️ <b>Настройки аккаунта:</b>", reply_markup=settings_page(1), parse_mode="HTML")
         
-    # БЛОКИРОВКА ПРЕМИУМ ФУНКЦИЙ
     elif data == "locked_feature":
         if not settings_state["vip_status"]:
             await callback.answer("🔒 Эта функция доступна только с подпиской!\n\nОформи подписку, чтобы разблокировать все возможности бота.", show_alert=True)
         else:
-            await callback.answer("✅ Доступ разрешен (настройки функции)", show_alert=False)
+            await callback.answer("✅ Доступ разрешен", show_alert=False)
 
+    # ОТКРЫТИЕ МЕНЮ УВЕДОМЛЕНИЙ
     elif data == "menu_notifications":
-        await callback.message.edit_text("🔔 <b>Настройка уведомлений:</b>\nВыберите тип:", reply_markup=sub_menu_keyboard(), parse_mode="HTML")
+        await callback.message.edit_text("⚙️ <b>Настройки уведомлений:</b>\nВключите или отключите нужные оповещения:", reply_markup=notifications_keyboard(), parse_mode="HTML")
+        
+    # ЛОГИКА ПЕРЕКЛЮЧЕНИЯ УВЕДОМЛЕНИЙ
+    elif data.startswith("notif_toggle_"):
+        key = data.replace("notif_toggle_", "")
+        # Меняем статус на противоположный
+        settings_state["notifications"][key] = not settings_state["notifications"][key]
+        
+        # Обновляем клавиатуру с новыми статусами
+        await callback.message.edit_reply_markup(reply_markup=notifications_keyboard())
+        await callback.answer()
+
     elif data == "menu_templates":
         await callback.message.edit_text("📝 <b>Заготовки ответов:</b>\nДля какой ситуации настроить автоответ?", reply_markup=sub_menu_keyboard(), parse_mode="HTML")
     elif data == "menu_autodelivery":
         await callback.message.edit_text("🤖 <b>Авто-выдача:</b>\nУправление товарами для выдачи:", reply_markup=autodelivery_keyboard(), parse_mode="HTML")
     
-    # --- ЛОГИКА НОВОГО ЗАКАЗА ---
     elif data.startswith("order_refund_"):
         await callback.answer("⏳ Отправляем запрос на возврат...", show_alert=False)
     elif data.startswith("order_complete_"):
@@ -277,10 +322,7 @@ async def callback_router(callback: CallbackQuery, state: FSMContext):
         await state.set_state(BotStates.waiting_for_reply)
         await callback.message.answer("✍️ Напишите сообщение, и оно будет автоматически отправлено покупателю:")
         await callback.answer()
-    elif data.startswith("order_more_") or data.startswith("order_templates_") or data.startswith("order_history_"):
-        await callback.answer("Функция в разработке", show_alert=False)
     
-    # --- ОСТАЛЬНОЕ ---
     elif data == "bind_account":
         await callback.message.answer("🔑 Отправьте ваш Token (cookie) от аккаунта Playerok в чат:")
         await state.set_state(BotStates.waiting_for_token)
