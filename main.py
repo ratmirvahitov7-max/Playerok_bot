@@ -2,7 +2,7 @@ import asyncio
 import os
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import CommandStart
-from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton
+from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 from aiohttp import web
 from database import init_db, add_user
 
@@ -10,7 +10,6 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
-# --- ВПИШИ СВОЙ ID СЮДА ---
 ADMIN_ID = 8158413794  
 
 def main_keyboard():
@@ -23,11 +22,20 @@ def main_keyboard():
         resize_keyboard=True
     )
 
+# --- Инлайн-клавиатура для настроек ---
+def settings_keyboard():
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="🔄 Авто-выдача: Выкл", callback_data="toggle_delivery")],
+            [InlineKeyboardButton(text="🚀 Авто-поднятие: Выкл", callback_data="toggle_bump")],
+            [InlineKeyboardButton(text="🔌 Привязать аккаунт Playerok", callback_data="bind_account")]
+        ]
+    )
+
 @dp.message(CommandStart())
 async def start_handler(message: Message):
     if message.from_user.id != ADMIN_ID:
-        return # Если пишет чужой, бот просто молчит
-        
+        return
     add_user(message.from_user.id, message.from_user.username or "none", message.from_user.first_name)
     await message.answer(
         f"👋 Привет, {message.from_user.first_name}!\n\n"
@@ -39,7 +47,6 @@ async def start_handler(message: Message):
 async def profile_handler(message: Message):
     if message.from_user.id != ADMIN_ID:
         return
-        
     text = (
         f"👤 <b>Мой профиль</b>\n\n"
         f"🆔 Ваш ID: <code>{message.from_user.id}</code>\n"
@@ -49,6 +56,23 @@ async def profile_handler(message: Message):
         f"🔌 Подключено аккаунтов: 0 / 1"
     )
     await message.answer(text, parse_mode="HTML")
+
+# --- Обработчик кнопки Настройки ---
+@dp.message(F.text == "⚙️ Настройки")
+async def settings_handler(message: Message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    await message.answer(
+        "⚙️ <b>Настройки автоматизации:</b>\n\n"
+        "Выберите нужный раздел для настройки бота.",
+        reply_markup=settings_keyboard(),
+        parse_mode="HTML"
+    )
+
+# --- Обработчик нажатий на инлайн-кнопки (пока заглушка) ---
+@dp.callback_query(F.data.in_(["toggle_delivery", "toggle_bump", "bind_account"]))
+async def callbacks_handler(callback: CallbackQuery):
+    await callback.answer("🛠 Функция в разработке. Скоро добавим!", show_alert=True)
 
 # --- Фейковый веб-сервер для бесплатного Render ---
 async def handle_ping(request):
