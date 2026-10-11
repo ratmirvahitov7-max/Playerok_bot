@@ -18,6 +18,7 @@ settings_state = {
     "account_connected": False 
 }
 
+# --- Главное меню ---
 def main_keyboard():
     return ReplyKeyboardMarkup(
         keyboard=[
@@ -28,6 +29,7 @@ def main_keyboard():
         resize_keyboard=True
     )
 
+# --- Инлайн меню настроек ---
 def settings_keyboard():
     delivery_text = "Вкл" if settings_state["delivery"] else "Выкл"
     bump_text = "Вкл" if settings_state["bump"] else "Выкл"
@@ -42,19 +44,16 @@ def settings_keyboard():
 
 @dp.message(CommandStart())
 async def start_handler(message: Message):
-    if message.from_user.id != ADMIN_ID:
-        return
+    if message.from_user.id != ADMIN_ID: return
     add_user(message.from_user.id, message.from_user.username or "none", message.from_user.first_name)
     await message.answer(
-        f"👋 Привет, {message.from_user.first_name}!\n\n"
-        "Добро пожаловать в панель управления.",
+        f"👋 Привет, {message.from_user.first_name}!\n\nДобро пожаловать в панель управления.",
         reply_markup=main_keyboard()
     )
 
 @dp.message(F.text == "👤 Профиль")
 async def profile_handler(message: Message):
-    if message.from_user.id != ADMIN_ID:
-        return
+    if message.from_user.id != ADMIN_ID: return
     text = (
         f"👤 <b>Мой профиль</b>\n\n"
         f"🆔 Ваш ID: <code>{message.from_user.id}</code>\n"
@@ -67,53 +66,90 @@ async def profile_handler(message: Message):
 
 @dp.message(F.text == "⚙️ Настройки")
 async def settings_handler(message: Message):
-    if message.from_user.id != ADMIN_ID:
-        return
-    await message.answer(
-        "⚙️ <b>Настройки автоматизации:</b>\n\n"
-        "Выберите нужный параметр:",
-        reply_markup=settings_keyboard(),
-        parse_mode="HTML"
-    )
+    if message.from_user.id != ADMIN_ID: return
+    await message.answer("⚙️ <b>Настройки автоматизации:</b>\n\nВыберите нужный параметр:", reply_markup=settings_keyboard(), parse_mode="HTML")
 
-@dp.callback_query(F.data.in_(["toggle_delivery", "toggle_bump", "bind_account"]))
+# --- НОВОЕ: Мои аккаунты ---
+@dp.message(F.text == "📦 Мои аккаунты")
+async def accounts_handler(message: Message):
+    if message.from_user.id != ADMIN_ID: return
+    
+    if settings_state["account_connected"]:
+        text = "📦 <b>Ваши аккаунты:</b>\n\n1. 🟢 <b>Playerok</b> (Активен)"
+    else:
+        text = "📦 <b>Ваши аккаунты:</b>\n\nНет подключенных аккаунтов."
+        
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="➕ Добавить аккаунт", callback_data="bind_account")],
+        [InlineKeyboardButton(text="📱 Управление в WebApp", web_app=WebAppInfo(url="https://core.telegram.org/bots/webapps"))]
+    ])
+    await message.answer(text, reply_markup=kb, parse_mode="HTML")
+
+# --- НОВОЕ: Статистика ---
+@dp.message(F.text == "📊 Статистика")
+async def stats_handler(message: Message):
+    if message.from_user.id != ADMIN_ID: return
+    
+    text = (
+        "📊 <b>Ваша статистика:</b>\n\n"
+        "🔄 Выдано товаров: 0\n"
+        "🚀 Выполнено поднятий: 0\n"
+        "💰 Заработано: 0 RUB"
+    )
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📱 Расширенная статистика", web_app=WebAppInfo(url="https://core.telegram.org/bots/webapps"))]
+    ])
+    await message.answer(text, reply_markup=kb, parse_mode="HTML")
+
+# --- НОВОЕ: Админ-панель ---
+@dp.message(F.text == "👑 Админ-панель")
+async def admin_handler(message: Message):
+    if message.from_user.id != ADMIN_ID: return
+    
+    text = "👑 <b>Дополнительные функции:</b>\n\nНастройки рефералов и прокси-серверов."
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔗 Реферальная программа", callback_data="referrals")],
+        [InlineKeyboardButton(text="🌐 Настройка Прокси", callback_data="proxy_setup")]
+    ])
+    await message.answer(text, reply_markup=kb, parse_mode="HTML")
+
+# --- Обработка нажатий кнопок ---
+@dp.callback_query(F.data.in_(["toggle_delivery", "toggle_bump", "bind_account", "referrals", "proxy_setup"]))
 async def callbacks_handler(callback: CallbackQuery):
-    # Логика Авто-выдачи
     if callback.data == "toggle_delivery":
         if not settings_state["account_connected"]:
             await callback.answer("Сначала подключите аккаунт Playerok!", show_alert=True)
             return
-            
         settings_state["delivery"] = not settings_state["delivery"]
         await callback.message.edit_reply_markup(reply_markup=settings_keyboard())
-        
-        webapp_btn = InlineKeyboardMarkup(inline_keyboard=[
-            # Временная ссылка-заглушка на документацию WebApp, пока не сделаем свой сайт
-            [InlineKeyboardButton(text="📱 Настроить товары", web_app=WebAppInfo(url="https://core.telegram.org/bots/webapps"))]
-        ])
+        webapp_btn = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="📱 Настроить товары", web_app=WebAppInfo(url="https://core.telegram.org/bots/webapps"))]])
         await callback.message.answer("Зайдите в мини-приложение, чтобы добавить текст и файлы для авто-выдачи.", reply_markup=webapp_btn)
         await callback.answer()
         
-    # Логика Авто-поднятия
     elif callback.data == "toggle_bump":
         if not settings_state["account_connected"]:
             await callback.answer("Сначала подключите аккаунт Playerok!", show_alert=True)
             return
-            
         settings_state["bump"] = not settings_state["bump"]
         await callback.message.edit_reply_markup(reply_markup=settings_keyboard())
-        
-        webapp_btn = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="📱 Выбрать товары", web_app=WebAppInfo(url="https://core.telegram.org/bots/webapps"))]
-        ])
+        webapp_btn = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="📱 Выбрать товары", web_app=WebAppInfo(url="https://core.telegram.org/bots/webapps"))]])
         await callback.message.answer("Зайдите в мини-приложение и отметьте товары для авто-поднятия.", reply_markup=webapp_btn)
         await callback.answer()
         
-    # Логика привязки аккаунта
     elif callback.data == "bind_account":
         settings_state["account_connected"] = True
-        await callback.message.edit_reply_markup(reply_markup=settings_keyboard())
+        if "Ваши аккаунты" not in callback.message.text:
+            await callback.message.edit_reply_markup(reply_markup=settings_keyboard())
         await callback.answer("Аккаунт успешно 'привязан'!", show_alert=True)
+        
+    elif callback.data == "referrals":
+        await callback.message.answer(f"🔗 Ваша реферальная ссылка:\n<code>https://t.me/{(await bot.me()).username}?start={ADMIN_ID}</code>\n\nПриглашайте друзей и получайте бонусы!", parse_mode="HTML")
+        await callback.answer()
+        
+    elif callback.data == "proxy_setup":
+        webapp_btn = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="📱 Добавить прокси", web_app=WebAppInfo(url="https://core.telegram.org/bots/webapps"))]])
+        await callback.message.answer("Зайдите в мини-приложение для добавления приватных прокси-серверов.", reply_markup=webapp_btn)
+        await callback.answer()
 
 # --- Фейковый веб-сервер ---
 async def handle_ping(request):
