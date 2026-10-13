@@ -309,6 +309,11 @@ def add_account(uid, name, token):
     return cur.lastrowid
 
 
+def get_account_token(uid, acc_id):
+    r = conn().execute("SELECT token FROM accounts WHERE id=? AND user_id=?", (acc_id, uid)).fetchone()
+    return r["token"] if r else None
+
+
 def list_accounts(uid):
     return conn().execute("SELECT id, name, created FROM accounts WHERE user_id=? ORDER BY id", (uid,)).fetchall()
 
