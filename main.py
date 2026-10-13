@@ -13,6 +13,7 @@ from aiohttp import web
 import config
 import database as db
 import sections
+import playerok_api
 import ui
 from ui import B, Ctx, KB, W, URL, dot, esc, fmt_date, reply, short, support_btn
 
@@ -244,7 +245,7 @@ def shops_view(uid):
         lines += [f"🟢 <b>{esc(a['name'])}</b>" for a in acc]
     else:
         lines = ["🏪 <b>Всего магазинов: 0</b>", "", "Пока нет подключённых магазинов."]
-    rows = [[B("➕ Добавить магазин", "a:add")]]
+    rows = [[B("➕ Подключить аккаунт", "a:add")]]
     for a in acc:
         rows.append([B(f"🗑 Удалить «{short(a['name'], 25)}»", f"a:del:{a['id']}")])
     return "\n".join(lines), KB(*rows)
@@ -255,15 +256,39 @@ async def h_shops(message: Message):
     await reply(message, text, kb)
 
 
+STATS_PERIODS = [(7, "7 дней"), (30, "30 дней"), (0, "Всё время")]
+
+
+def stats_kb():
+    return KB([B(label, f"st:{d}") for d, label in STATS_PERIODS], [B("🏪 Мои магазины", "a:list")])
+
+
+async def stats_message(uid, days):
+    accs = db.list_accounts(uid)
+    if not accs:
+        return ("📈 <b>Статистика</b>\n\nСначала подключи магазин: «Мои магазины» → «➕ Подключить аккаунт», "
+                "и вставь токен Playerok."), KB([B("🏪 Мои магазины", "a:list")])
+    acc = accs[0]
+    token = db.get_account_token(uid, acc["id"])
+    label = "за всё время" if days == 0 else f"за {days} дн."
+    try:
+        s = await playerok_api.fetch_stats(token, days)
+    except playerok_api.PlayerokError as e:
+        return f"❌ <b>{esc(acc['name'])}</b>\n\n{esc(e)}", stats_kb()
+    sales = "в очереди, подключим после проверки" if s["sales"] is None else str(s["sales"])
+    revenue = "в очереди" if s["revenue"] is None else f"{s['revenue']:.0f} ₽"
+    bal = "не удалось прочитать" if s["balance"] is None else f"{s['balance']:.2f} ₽"
+    text = (f"📊 <b>{esc(acc['name'])}</b> · {label}\n\n"
+            f"🏦 Баланс сейчас: <b>{bal}</b>\n"
+            f"💰 Выручка: <b>{revenue}</b>\n"
+            f"🛒 Продаж: <b>{sales}</b>")
+    return text, stats_kb()
+
+
 async def h_stats(message: Message):
     uid = message.from_user.id
-    if not db.list_accounts(uid):
-        await reply(message, "⚠️ <b>Доступ закрыт</b>\n\nСначала подключи магазин, чтобы смотреть статистику.",
-                    KB([B("🔌 Подключить магазин", "a:add")]))
-        return
-    text = ("📈 <b>Статистика</b>\n\n📅 <b>За сегодня:</b>\n💸 Заработано: 0 ₽\n🛒 Успешных сделок: 0\n\n"
-            "<i>Подробная аналитика — в мини-приложении.</i>")
-    await reply(message, text, KB([W("📱 Открыть подробную статистику", tab="stats")]))
+    text, kb = await stats_message(uid, 7)
+    await reply(message, text, kb)
 
 
 async def h_soon(message: Message):
@@ -430,6 +455,12 @@ async def handle_main_callback(ctx: Ctx):
             return False
         return True
 
+    if head == "st":
+        await ctx.ack("Загружаю…")
+        text, kb = await stats_message(uid, int(p[1]))
+        await ctx.edit(text, kb)
+        return True
+
     # ---------------- магазины
     if head == "a":
         act = p[1]
@@ -565,7 +596,7 @@ async def buy_plan(ctx, idx):
         db.clear_user_promo(uid)
     await ctx.ack()
     await ctx.edit(f"🥳 <b>Подписка приобретена!</b>\n\nПериод: {name}\nМагазинов: до {config.ACCOUNT_LIMIT_PREMIUM}\nСписано: {final} ₽",
-                   KB([B("➕ Добавить магазин", "a:add")], [B("🙋 Открыть профиль", "p:prof")]))
+                   KB([B("➕ Подключить аккаунт", "a:add")], [B("🙋 Открыть профиль", "p:prof")]))
 
 
 # ====================================================================== ввод текста (шаги диалога)
@@ -613,9 +644,14 @@ async def handle_input(message: Message, state: FSMContext, st: str):
         if len(db.list_accounts(uid)) >= db.account_limit(uid):
             await reply(message, "Лимит магазинов исчерпан.")
             return True
-        n = len(db.list_accounts(uid)) + 1
-        db.add_account(uid, f"Магазин {n}", text)
-        await reply(message, "✅ <b>Магазин подключён.</b> Токен сохранён, сообщение с ним удалено.", KB([B("🏪 Мои магазины", "a:list")]))
+        try:
+            username = await playerok_api.check_token(text)
+        except playerok_api.PlayerokError as e:
+            await reply(message, f"❌ {esc(e)}")
+            return True
+        db.add_account(uid, username, text)
+        await reply(message, f"✅ <b>Аккаунт {esc(username)} подключён.</b>\nТокен сохранён, сообщение с ним удалено.",
+                    KB([B("📈 Статистика", "st:7"), B("🏪 Мои магазины", "a:list")]))
         return True
 
     if st == "in:tr_target":
