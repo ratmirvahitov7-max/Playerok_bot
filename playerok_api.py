@@ -1,16 +1,13 @@
 """Работа с Playerok по токену аккаунта. Все запросы к сайту только здесь.
 
-Библиотека: PlayerokAPI с PyPI (pip install PlayerokAPI). Ставится на сервер отдельно.
-Если её нет, бот всё равно запускается, а при подключении пишет понятную ошибку.
+Библиотека: PlayerokAPI (pip install PlayerokAPI), автор th1ks.
+Версия 0.2.0: Account(token=...), методы get_me, get_balance, aclose.
 """
-import asyncio
+import inspect
 import logging
 import re
 
 log = logging.getLogger("playerok")
-
-_UNUSED_UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-              "(KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36")
 
 
 class PlayerokError(Exception):
@@ -22,27 +19,50 @@ _JWT = re.compile(r"^eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10
 
 
 def looks_like_token(text):
-    return bool(_JWT.match((text or "").strip()))
+    return bool((text or "").strip() and _JWT.match((text or "").strip()))
 
 
-def _account(token):
-    """Вход по токену: как в примере библиотеки, токен передаётся внутри cookies."""
+async def _maybe_await(value):
+    if inspect.isawaitable(value):
+        return await value
+    return value
+
+
+def _new_account(token):
     try:
-        from playerokapi.account import Account
+        from PlayerokAPI import Account
     except ImportError:
         raise PlayerokError("На сервере не установлена библиотека Playerok. Сообщи админу.")
-    return Account(cookies=f"token={token}", user_agent=USER_AGENT).get()
+    return Account(token=token)
 
 
-def _name(acc):
-    return str(getattr(acc, "username", None) or f"id {getattr(acc, 'id', '?')}")
-
-
-def _balance(acc):
+async def _close(acc):
     try:
-        return float(acc.profile.balance.available)
+        await _maybe_await(acc.aclose())
     except Exception:
-        return None
+        pass
+
+
+def _name(me):
+    for field in ("username", "name", "login"):
+        val = getattr(me, field, None)
+        if val:
+            return str(val)
+    if isinstance(me, dict):
+        for field in ("username", "name"):
+            if me.get(field):
+                return str(me[field])
+    return "аккаунт"
+
+
+def _balance_value(bal):
+    if isinstance(bal, (int, float)):
+        return float(bal)
+    for field in ("available", "value", "balance"):
+        val = getattr(bal, field, None)
+        if isinstance(val, (int, float)):
+            return float(val)
+    return None
 
 
 async def check_token(token):
@@ -50,29 +70,33 @@ async def check_token(token):
     token = (token or "").strip()
     if not looks_like_token(token):
         raise PlayerokError("Это не токен Playerok. Токен начинается с «eyJ» и состоит из трёх частей через точки. Кошелёк сюда не вставляй.")
+    acc = _new_account(token)
     try:
-        acc = await asyncio.to_thread(_account, token)
+        me = await _maybe_await(acc.get_me())
+        return _name(me)
     except PlayerokError:
         raise
     except Exception as e:
         log.warning("токен не прошёл проверку: %s", e)
         raise PlayerokError("Токен не подошёл. Проверь, что скопировал его полностью, без пробелов.")
-    return _name(acc)
+    finally:
+        await _close(acc)
 
 
 async def fetch_stats(token, days):
-    """Сводка по аккаунту. days=0 — за всё время.
-
-    Пока возвращаем только то, что точно есть в библиотеке.
-    Выручку и продажи добавим, когда найдём метод сделок в документации
-    (playerokapi.readthedocs.io) и проверим его на твоём аккаунте.
-    """
+    """Сводка по аккаунту. Пока только баланс. Продажи добавим отдельно."""
+    acc = _new_account(token)
     try:
-        acc = await asyncio.to_thread(_account, token)
-    except PlayerokError:
-        raise
+        me = await _maybe_await(acc.get_me())
+        balance = None
+        try:
+            balance = _balance_value(await _maybe_await(acc.get_balance()))
+        except Exception as e:
+            log.warning("баланс не получен: %s", e)
+        return {"name": _name(me), "balance": balance,
+                "revenue": None, "sales": None, "refunds": None, "days": days}
     except Exception as e:
         log.warning("не удалось получить статистику: %s", e)
         raise PlayerokError("Не удалось получить данные с Playerok. Попробуй позже.")
-    return {"name": _name(acc), "balance": _balance(acc),
-            "revenue": None, "sales": None, "refunds": None, "days": days}
+    finally:
+        await _close(acc)
