@@ -66,6 +66,18 @@ def _explain(e):
     return "Не удалось получить данные с Playerok. Попробуй позже."
 
 
+def _parse_date(value):
+    if isinstance(value, datetime):
+        return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+    if isinstance(value, str) and value:
+        try:
+            dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+            return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+        except ValueError:
+            return None
+    return None
+
+
 def _name(acc):
     return str(getattr(acc, "username", None) or f"id {getattr(acc, 'id', '?')}")
 
@@ -115,6 +127,7 @@ async def fetch_stats(token, days, max_pages=40, proxy=None):
 
         sales = refunds = 0
         revenue = fees = refund_sum = 0.0
+        fee_known = True
         cursor = None
         for _ in range(max_pages):
             page = await _call(acc.get_deals, direction=ItemDealDirections.OUT, count=24, after_cursor=cursor)
@@ -130,8 +143,15 @@ async def fetch_stats(token, days, max_pages=40, proxy=None):
                 if since and (created is None or created < since):
                     continue
                 tr = getattr(d, "transaction", None)
-                value = float(getattr(tr, "value", 0) or 0) if tr else 0.0
-                fee = float(getattr(tr, "fee", 0) or 0) if tr else 0.0
+                item = getattr(d, "item", None)
+                if tr is not None and float(getattr(tr, "value", 0) or 0):
+                    value = float(tr.value)
+                    fee = float(getattr(tr, "fee", 0) or 0)
+                else:
+                    # если транзакции в списке нет, берём цену товара из сделки
+                    value = float(getattr(item, "price", 0) or 0)
+                    fee = 0.0
+                    fee_known = False
                 if d.status in sold:
                     sales += 1
                     revenue += value
@@ -145,7 +165,8 @@ async def fetch_stats(token, days, max_pages=40, proxy=None):
 
         return {"name": name, "balance": balance, "days": days,
                 "sales": sales, "refunds": refunds,
-                "revenue": revenue, "fees": fees, "net": revenue - fees,
+                "revenue": revenue, "fees": fees if fee_known else None,
+                "net": (revenue - fees) if fee_known else None,
                 "refund_sum": refund_sum}
     except PlayerokError:
         raise
@@ -154,3 +175,60 @@ async def fetch_stats(token, days, max_pages=40, proxy=None):
         raise PlayerokError(_explain(e))
     finally:
         pass
+
+
+async def fetch_full(token, proxy=None, max_pages=40):
+    """Сводка для меню «Полная сводка». Все суммы — цена товара из сделки (руб.)."""
+    from datetime import timedelta
+    from playerokapi.enums import ItemDealDirections, ItemDealStatuses as S
+
+    confirmed = {S.CONFIRMED, S.CONFIRMED_AUTOMATICALLY}
+    unfinished_st = {S.PENDING, S.PAID, S.SENT}
+    now = datetime.now(timezone.utc)
+    periods = {"day": now - timedelta(days=1), "week": now - timedelta(days=7),
+               "month": now - timedelta(days=30), "all": None}
+    buckets = {k: {"ok": [0, 0.0], "ref": [0, 0.0]} for k in periods}
+    unfinished = [0, 0.0]
+
+    try:
+        acc = _open(token, proxy)
+        acc = await _call(acc.get)
+        name = _name(acc)
+        b = getattr(getattr(acc, "profile", None), "balance", None)
+        balance = {
+            "value": float(getattr(b, "value", 0) or 0),
+            "withdrawable": float(getattr(b, "withdrawable", 0) or 0),
+            "frozen": float(getattr(b, "frozen", 0) or 0),
+            "pending": float(getattr(b, "pending_income", 0) or 0),
+        }
+
+        cursor = None
+        for _ in range(max_pages):
+            page = await _call(acc.get_deals, direction=ItemDealDirections.OUT, count=24, after_cursor=cursor)
+            for d in page.deals:
+                price = float(getattr(getattr(d, "item", None), "price", 0) or 0)
+                created = _parse_date(getattr(d, "created_at", None))
+                if d.status in unfinished_st:
+                    unfinished[0] += 1
+                    unfinished[1] += price
+                    continue
+                if d.status in confirmed:
+                    key = "ok"
+                elif d.status == S.ROLLED_BACK:
+                    key = "ref"
+                else:
+                    continue
+                for pname, since in periods.items():
+                    if since is None or (created is not None and created >= since):
+                        buckets[pname][key][0] += 1
+                        buckets[pname][key][1] += price
+            if not page.page_info.has_next_page:
+                break
+            cursor = page.page_info.end_cursor
+
+        return {"name": name, "balance": balance, "unfinished": unfinished, "periods": buckets}
+    except PlayerokError:
+        raise
+    except Exception as e:
+        log.warning("не удалось получить сводку: %s", e)
+        raise PlayerokError(_explain(e))
