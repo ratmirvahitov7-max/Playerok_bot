@@ -290,6 +290,16 @@ async def stats_message(uid, days):
 PROXY_RE = re.compile(r"^(?:[^:@\s]+:[^:@\s]+@)?\d{1,3}(?:\.\d{1,3}){3}:\d{2,5}$")
 
 
+def normalize_proxy(text):
+    """Принимает ip:port:login:password или login:password@ip:port и приводит к login:password@ip:port."""
+    t = (text or "").strip()
+    m = re.fullmatch(r"(\d{1,3}(?:\.\d{1,3}){3}):(\d{2,5}):([^:@\s]+):(\S+)", t)
+    if m:
+        ip, port, login, password = m.groups()
+        return f"{login}:{password}@{ip}:{port}"
+    return t
+
+
 def proxy_text(uid):
     px = db.get_user_proxy(uid)
     status = "🟢 подключён" if px else "🔴 не подключён"
@@ -315,7 +325,7 @@ def proxy_kb(uid):
 PROXY_HELP = ("📖 <b>Как вставить прокси</b>\n\n"
               "1. Нажми «🟢 Купить прокси» и оплати.\n"
               "2. В письме или в личном кабинете магазина найди строку с прокси.\n"
-              "3. Она выглядит так: <code>ip:порт</code> или <code>логин:пароль@ip:порт</code>.\n"
+              "3. Она выглядит так: <code>ip:порт</code>, <code>логин:пароль@ip:порт</code> или <code>ip:порт:логин:пароль</code>. Все три варианта принимаются.\n"
               "4. Нажми «📝 Вставить прокси» и отправь эту строку одним сообщением.\n\n"
               "Нужен IPv4 прокси. Если строка не проходит проверку, проверь, что нет пробелов и лишних символов.")
 
@@ -723,6 +733,7 @@ async def handle_input(message: Message, state: FSMContext, st: str):
 
     if st == "in:proxy":
         await done()
+        text = normalize_proxy(text)
         if not PROXY_RE.match(text):
             await reply(message, "❌ Не похоже на прокси. Нужно <code>ip:порт</code> или <code>логин:пароль@ip:порт</code>. Открой «📖 Как вставить прокси».",
                         KB([B("📖 Как вставить прокси", "px:help")]))
