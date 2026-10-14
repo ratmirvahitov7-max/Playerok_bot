@@ -19,6 +19,15 @@ class PlayerokError(Exception):
 _JWT = re.compile(r"^eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}$")
 
 
+_JWT_FIND = re.compile(r"eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}")
+
+
+def extract_token(text):
+    """Достаёт токен из любого текста: чистый токен, token=... из cookies, строка с пробелами и т.п."""
+    m = _JWT_FIND.search(text or "")
+    return m.group(0) if m else None
+
+
 def looks_like_token(text):
     return bool((text or "").strip() and _JWT.match((text or "").strip()))
 
