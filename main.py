@@ -287,13 +287,13 @@ async def stats_message(uid, days):
     return text, stats_kb()
 
 
-PROXY_RE = re.compile(r"^(?:[^:@\s]+:[^:@\s]+@)?\d{1,3}(?:\.\d{1,3}){3}:\d{2,5}$")
+PROXY_RE = re.compile(r"^(?:[^:@\s]+:[^:@\s]+@)?[A-Za-z0-9][A-Za-z0-9.-]*:\d{2,5}$")
 
 
 def normalize_proxy(text):
     """Принимает ip:port:login:password или login:password@ip:port и приводит к login:password@ip:port."""
     t = (text or "").strip()
-    m = re.fullmatch(r"(\d{1,3}(?:\.\d{1,3}){3}):(\d{2,5}):([^:@\s]+):(\S+)", t)
+    m = re.fullmatch(r"([A-Za-z0-9][A-Za-z0-9.-]*):(\d{2,5}):([^:@\s]+):(\S+)", t)
     if m:
         ip, port, login, password = m.groups()
         return f"{login}:{password}@{ip}:{port}"
