@@ -273,7 +273,7 @@ async def stats_message(uid, days):
     token = db.get_account_token(uid, acc["id"])
     label = "за всё время" if days == 0 else f"за {days} дн."
     try:
-        s = await playerok_api.fetch_stats(token, days)
+        s = await playerok_api.fetch_stats(token, days, proxy=db.get_user_proxy(uid))
     except playerok_api.PlayerokError as e:
         return f"❌ <b>{esc(acc['name'])}</b>\n\n{esc(e)}", stats_kb()
     bal = "не удалось прочитать" if s["balance"] is None else f"{s['balance']:.2f} ₽"
@@ -285,6 +285,51 @@ async def stats_message(uid, days):
             f"💸 Комиссия площадки: <b>{s['fees']:.0f}</b>\n"
             f"✅ Чистыми: <b>{s['net']:.0f}</b>")
     return text, stats_kb()
+
+
+PROXY_RE = re.compile(r"^(?:[^:@\s]+:[^:@\s]+@)?\d{1,3}(?:\.\d{1,3}){3}:\d{2,5}$")
+
+
+def proxy_text(uid):
+    px = db.get_user_proxy(uid)
+    status = "🟢 подключён" if px else "🔴 не подключён"
+    mask = ""
+    if px:
+        mask = "\n\nТвой прокси: <code>" + esc(px.split("@")[-1]) + "</code> (логин и пароль скрыты)"
+    return ("🛰 <b>Прокси</b>\n\n"
+            "Playerok блокирует запросы с серверов. Прокси нужен, чтобы твой магазин работал стабильно.\n\n"
+            f"Статус: {status}{mask}")
+
+
+def proxy_kb(uid):
+    rows = []
+    if config.PROXY_SHOP_URL:
+        rows.append([URL("🟢 Купить прокси", config.PROXY_SHOP_URL)])
+    rows.append([B("📝 Вставить прокси", "px:add")])
+    if db.get_user_proxy(uid):
+        rows.append([B("🗑 Убрать прокси", "px:del")])
+    rows.append([B("📖 Как вставить прокси", "px:help")])
+    return KB(*rows)
+
+
+PROXY_HELP = ("📖 <b>Как вставить прокси</b>\n\n"
+              "1. Нажми «🟢 Купить прокси» и оплати.\n"
+              "2. В письме или в личном кабинете магазина найди строку с прокси.\n"
+              "3. Она выглядит так: <code>ip:порт</code> или <code>логин:пароль@ip:порт</code>.\n"
+              "4. Нажми «📝 Вставить прокси» и отправь эту строку одним сообщением.\n\n"
+              "Нужен IPv4 прокси. Если строка не проходит проверку, проверь, что нет пробелов и лишних символов.")
+
+
+async def h_proxy(message: Message):
+    await reply(message, proxy_text(message.from_user.id), proxy_kb(message.from_user.id))
+
+
+def need_proxy_kb():
+    rows = []
+    if config.PROXY_SHOP_URL:
+        rows.append([URL("🟢 Купить прокси", config.PROXY_SHOP_URL)])
+    rows.append([B("🛰 Подключить прокси", "px:open")])
+    return KB(*rows)
 
 
 async def h_stats(message: Message):
@@ -343,7 +388,7 @@ async def h_admin(message: Message):
 
 MENU_MAP = {
     ui.BTN_SETTINGS: h_settings, ui.BTN_STATS: h_stats, ui.BTN_SHOPS: h_shops, ui.BTN_PROFILE: h_profile,
-    ui.BTN_PROXY: h_soon, ui.BTN_CHATS: h_soon, ui.BTN_ORDERS: h_soon, ui.BTN_GOODS: h_soon,
+    ui.BTN_PROXY: h_proxy, ui.BTN_CHATS: h_soon, ui.BTN_ORDERS: h_soon, ui.BTN_GOODS: h_soon,
     ui.BTN_PAYMENTS: h_payments, ui.BTN_ADMIN: h_admin,
 }
 
@@ -463,12 +508,34 @@ async def handle_main_callback(ctx: Ctx):
         await ctx.edit(text, kb)
         return True
 
+    if head == "px":
+        act = p[1]
+        if act == "open":
+            await ctx.edit(proxy_text(uid), proxy_kb(uid))
+        elif act == "add":
+            await ctx.state.set_state("in:proxy")
+            await ctx.send("📝 Отправь прокси одним сообщением:\n<code>ip:порт</code> или <code>логин:пароль@ip:порт</code>",
+                           KB([B("🚫 Отмена", "cancel")]))
+        elif act == "help":
+            await ctx.edit(PROXY_HELP, KB([B("🛰 К прокси", "px:open")]))
+        elif act == "del":
+            db.set_user_proxy(uid, None)
+            await ctx.ack("Прокси убран.", True)
+            await ctx.edit(proxy_text(uid), proxy_kb(uid))
+        else:
+            return False
+        return True
+
     # ---------------- магазины
     if head == "a":
         act = p[1]
         if act == "add":
             if len(db.list_accounts(uid)) >= db.account_limit(uid):
                 await ctx.ack("Лимит магазинов исчерпан. Оформи подписку, чтобы подключить больше.", True)
+                return True
+            if not db.get_user_proxy(uid):
+                await ctx.send("🛰 <b>Сначала подключи прокси.</b>\n\nБез прокси Playerok не отдаёт данные магазина. Купи прокси по кнопке ниже и вставь его.",
+                               need_proxy_kb())
                 return True
             await ctx.state.set_state("in:token")
             await ctx.send("🔑 Отправь токен аккаунта Playerok. Сообщение с токеном бот сразу удалит.", KB([B("🚫 Отмена", "cancel")]))
@@ -654,6 +721,17 @@ async def handle_input(message: Message, state: FSMContext, st: str):
             await reply(message, "❌ Такого промокода нет.")
         return True
 
+    if st == "in:proxy":
+        await done()
+        if not PROXY_RE.match(text):
+            await reply(message, "❌ Не похоже на прокси. Нужно <code>ip:порт</code> или <code>логин:пароль@ip:порт</code>. Открой «📖 Как вставить прокси».",
+                        KB([B("📖 Как вставить прокси", "px:help")]))
+            return True
+        db.set_user_proxy(uid, text)
+        await reply(message, "✅ <b>Прокси сохранён.</b> Сообщение с ним удалено. Теперь можно подключать аккаунт.",
+                    KB([B("➕ Подключить аккаунт", "a:add")]))
+        return True
+
     if st == "in:token":
         await done()
         if len(text) < 10 or len(text) > 2000:
@@ -663,7 +741,7 @@ async def handle_input(message: Message, state: FSMContext, st: str):
             await reply(message, "Лимит магазинов исчерпан.")
             return True
         try:
-            username = await playerok_api.check_token(text)
+            username = await playerok_api.check_token(text, proxy=db.get_user_proxy(uid))
         except playerok_api.PlayerokError as e:
             await reply(message, f"❌ {esc(e)}")
             return True
