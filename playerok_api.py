@@ -44,7 +44,14 @@ def _new_account(token, proxy=None):
     except ImportError:
         raise PlayerokError("На сервере не установлена библиотека Playerok. Сообщи админу.")
     if proxy:
-        return Account(token=token, proxy=proxy)
+        px = proxy.strip()
+        if "://" not in px:
+            px = "http://" + px
+        try:
+            return Account(token=token, proxy=px)
+        except Exception as e:
+            log.warning("прокси не принят библиотекой: %s", e)
+            raise PlayerokError("Прокси не принят. Проверь строку прокси: ip, порт, логин и пароль.")
     return Account(token=token)
 
 
