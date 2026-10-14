@@ -21,22 +21,28 @@ DB_PATH = os.getenv("DB_PATH", "bot_database.db")
 # --- Мини-приложение (ссылка https://..., без слэша на конце) ---
 WEBAPP_URL = os.getenv("WEBAPP_URL", "").rstrip("/")
 
+# --- Инструкция, как получить токен (ссылка на Telegraph) ---
+TOKEN_GUIDE_URL = os.getenv("TOKEN_GUIDE_URL", "")
+
+# --- Прокси: ссылка на покупку (сюда вставь свою реферальную) ---
+PROXY_SHOP_URL = os.getenv("PROXY_SHOP_URL", "")
+
 # --- Оформление ---
 BRAND = os.getenv("BRAND", "Playerok Helper")
 PORT = int(os.getenv("PORT", "8080"))
 
 # --- Подписка: (дней, цена в рублях, название) ---
 PLANS = [
-    (7, 399, "7 дней"),
-    (30, 999, "30 дней"),
-    (180, 3999, "6 месяцев"),
+    (7, 279, "7 дней"),
+    (30, 650, "30 дней"),
+    (180, 1890, "6 месяцев"),
 ]
 ACCOUNT_LIMIT_FREE = 1
 ACCOUNT_LIMIT_PREMIUM = 5
 
 # --- Пополнение ---
 TOPUP_MIN = 10
-TOPUP_MAX = 50000
+TOPUP_MAX = 15000
 INVOICE_TTL_MIN = 30
 DEFAULT_USDT_RATE = 90.0  # рублей за 1 USDT (меняется в админ-панели)
 
