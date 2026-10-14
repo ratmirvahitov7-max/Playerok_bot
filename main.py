@@ -247,6 +247,7 @@ def shops_view(uid):
         lines = ["🏪 <b>Всего магазинов: 0</b>", "", "Пока нет подключённых магазинов."]
     rows = [[B("➕ Подключить аккаунт", "a:add")]]
     for a in acc:
+        rows.append([B(f"🔑 Обновить токен «{short(a['name'], 20)}»", f"a:upd:{a['id']}")])
         rows.append([B(f"🗑 Удалить «{short(a['name'], 25)}»", f"a:del:{a['id']}")])
     return "\n".join(lines), KB(*rows)
 
@@ -275,13 +276,14 @@ async def stats_message(uid, days):
         s = await playerok_api.fetch_stats(token, days)
     except playerok_api.PlayerokError as e:
         return f"❌ <b>{esc(acc['name'])}</b>\n\n{esc(e)}", stats_kb()
-    sales = "в очереди, подключим после проверки" if s["sales"] is None else str(s["sales"])
-    revenue = "в очереди" if s["revenue"] is None else f"{s['revenue']:.0f} ₽"
     bal = "не удалось прочитать" if s["balance"] is None else f"{s['balance']:.2f} ₽"
     text = (f"📊 <b>{esc(acc['name'])}</b> · {label}\n\n"
             f"🏦 Баланс сейчас: <b>{bal}</b>\n"
-            f"💰 Выручка: <b>{revenue}</b>\n"
-            f"🛒 Продаж: <b>{sales}</b>")
+            f"🛒 Продаж: <b>{s['sales']}</b>\n"
+            f"↩️ Возвратов: <b>{s['refunds']}</b>\n"
+            f"💰 Выручка: <b>{s['revenue']:.0f}</b>\n"
+            f"💸 Комиссия площадки: <b>{s['fees']:.0f}</b>\n"
+            f"✅ Чистыми: <b>{s['net']:.0f}</b>")
     return text, stats_kb()
 
 
@@ -479,6 +481,22 @@ async def handle_main_callback(ctx: Ctx):
         elif act == "list":
             text, kb = shops_view(uid)
             await ctx.edit(text, kb)
+        elif act == "upd":
+            acc_row = next((a for a in db.list_accounts(uid) if str(a["id"]) == p[2]), None)
+            if not acc_row:
+                await ctx.ack("Магазин не найден.", True)
+                return True
+            text = (f"🔑 <b>Обновление токена · {esc(acc_row['name'])}</b>\n\n"
+                    "Токен протухает, и тогда бот перестаёт видеть магазин.\n\n"
+                    "1. Получи новый токен по инструкции.\n"
+                    "2. Нажми «➕ Подключить аккаунт» и вставь его.\n\n"
+                    "Старый магазин можно удалить после этого.")
+            rows = []
+            if config.TOKEN_GUIDE_URL:
+                rows.append([URL("📖 Инструкция: как получить токен", config.TOKEN_GUIDE_URL)])
+            rows.append([B("➕ Подключить аккаунт", "a:add")])
+            rows.append([B("← Назад", "a:list")])
+            await ctx.edit(text, KB(*rows))
         else:
             return False
         return True
