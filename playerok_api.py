@@ -29,11 +29,13 @@ async def _maybe_await(value):
     return value
 
 
-def _new_account(token):
+def _new_account(token, proxy=None):
     try:
         from PlayerokAPI import Account
     except ImportError:
         raise PlayerokError("На сервере не установлена библиотека Playerok. Сообщи админу.")
+    if proxy:
+        return Account(token=token, proxy=proxy)
     return Account(token=token)
 
 
@@ -66,12 +68,12 @@ def _balance_value(bal):
     return None
 
 
-async def check_token(token):
+async def check_token(token, proxy=None):
     """Проверяет токен. Возвращает имя аккаунта. При ошибке — PlayerokError."""
     token = (token or "").strip()
     if not looks_like_token(token):
         raise PlayerokError("Это не токен Playerok. Токен начинается с «eyJ» и состоит из трёх частей через точки. Кошелёк сюда не вставляй.")
-    acc = _new_account(token)
+    acc = _new_account(token, proxy)
     try:
         me = await _maybe_await(acc.get_me())
         return _name(me)
@@ -105,7 +107,7 @@ async def _call(fn, *args, **kwargs):
     return await asyncio.to_thread(fn, *args, **kwargs)
 
 
-async def fetch_stats(token, days, max_pages=40):
+async def fetch_stats(token, days, max_pages=40, proxy=None):
     """Статистика по сделкам. days=0 — за всё время.
 
     Продажи: сделки направления OUT со статусом PAID, SENT или CONFIRMED.
@@ -118,7 +120,7 @@ async def fetch_stats(token, days, max_pages=40):
     sold_statuses = {ItemDealStatus.PAID, ItemDealStatus.SENT, ItemDealStatus.CONFIRMED}
     since = None if not days else datetime.now(timezone.utc) - timedelta(days=days)
 
-    acc = _new_account(token)
+    acc = _new_account(token, proxy)
     try:
         me = await _call(acc.get_me)
         name = _name(me)
