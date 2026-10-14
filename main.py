@@ -760,6 +760,10 @@ async def handle_input(message: Message, state: FSMContext, st: str):
         except playerok_api.PlayerokError as e:
             await reply(message, f"❌ {esc(e)}")
             return True
+        except Exception:
+            log.exception("подключение аккаунта упало")
+            await reply(message, "❌ Не удалось подключить аккаунт из-за внутренней ошибки. Админ уже в курсе.")
+            return True
         db.add_account(uid, username, text)
         await reply(message, f"✅ <b>Аккаунт {esc(username)} подключён.</b>\nТокен сохранён, сообщение с ним удалено.",
                     KB([B("📈 Статистика", "st:7"), B("🏪 Мои магазины", "a:list")]))
