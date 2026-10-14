@@ -1,180 +1,147 @@
 """Работа с Playerok по токену аккаунта. Все запросы к сайту только здесь.
 
-Библиотека: PlayerokAPI (pip install PlayerokAPI), автор th1ks.
-Версия 0.2.0: Account(token=...), методы get_me, get_balance, aclose.
+Библиотека: alleexxeeyy/PlayerokAPI (модуль playerokapi), ставится на сервер отдельно.
+Вход: Account(cookies="token=...", user_agent=..., proxy=...).get()
 """
 import asyncio
 import inspect
 import logging
 import re
+from datetime import datetime, timezone
 
 log = logging.getLogger("playerok")
+
+USER_AGENT = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+              "(KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36")
 
 
 class PlayerokError(Exception):
     """Ошибка, которую можно показать пользователю."""
 
 
-# Токен Playerok — это JWT: три части через точку, первая начинается с «eyJ».
 _JWT = re.compile(r"^eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}$")
-
-
 _JWT_FIND = re.compile(r"eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}")
 
 
 def extract_token(text):
-    """Достаёт токен из любого текста: чистый токен, token=... из cookies, строка с пробелами и т.п."""
     m = _JWT_FIND.search(text or "")
     return m.group(0) if m else None
 
 
 def looks_like_token(text):
-    return bool((text or "").strip() and _JWT.match((text or "").strip()))
-
-
-async def _maybe_await(value):
-    if inspect.isawaitable(value):
-        return await value
-    return value
-
-
-def _new_account(token, proxy=None):
-    try:
-        from PlayerokAPI import Account
-    except ImportError:
-        raise PlayerokError("На сервере не установлена библиотека Playerok. Сообщи админу.")
-    if proxy:
-        px = proxy.strip()
-        if "://" not in px:
-            px = "http://" + px
-        try:
-            return Account(token=token, proxy=px)
-        except Exception as e:
-            log.warning("прокси не принят библиотекой: %s", e)
-            raise PlayerokError("Прокси не принят. Проверь строку прокси: ip, порт, логин и пароль.")
-    return Account(token=token)
-
-
-async def _close(acc):
-    try:
-        await _maybe_await(acc.aclose())
-    except Exception:
-        pass
-
-
-def _name(me):
-    for field in ("username", "name", "login"):
-        val = getattr(me, field, None)
-        if val:
-            return str(val)
-    if isinstance(me, dict):
-        for field in ("username", "name"):
-            if me.get(field):
-                return str(me[field])
-    return "аккаунт"
-
-
-def _balance_value(bal):
-    if isinstance(bal, (int, float)):
-        return float(bal)
-    for field in ("available", "value", "balance"):
-        val = getattr(bal, field, None)
-        if isinstance(val, (int, float)):
-            return float(val)
-    return None
-
-
-async def check_token(token, proxy=None):
-    """Проверяет токен. Возвращает имя аккаунта. При ошибке — PlayerokError."""
-    token = (token or "").strip()
-    if not looks_like_token(token):
-        raise PlayerokError("Это не токен Playerok. Токен начинается с «eyJ» и состоит из трёх частей через точки. Кошелёк сюда не вставляй.")
-    acc = _new_account(token, proxy)
-    try:
-        me = await _maybe_await(acc.get_me())
-        return _name(me)
-    except PlayerokError:
-        raise
-    except Exception as e:
-        log.warning("токен не прошёл проверку: %s", e)
-        text = str(e)
-        if "407" in text or "Proxy" in text:
-            raise PlayerokError("Прокси не пускает: неверный логин или пароль, либо у прокси не разрешён IP сервера.")
-        if "403" in text or "401" in text or "Unauthorized" in text:
-            raise PlayerokError("Playerok не принял токен. Возможно, он устарел: возьми новый.")
-        raise PlayerokError("Не удалось проверить токен. Попробуй позже или проверь прокси.")
-    finally:
-        await _close(acc)
-
-
-def _parse_date(value):
-    """created_at может прийти строкой или datetime. Возвращает datetime с часовым поясом или None."""
-    from datetime import datetime, timezone
-    if isinstance(value, datetime):
-        return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
-    if isinstance(value, str) and value:
-        try:
-            dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
-            return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
-        except ValueError:
-            return None
-    return None
+    return bool(_JWT.match((text or "").strip()))
 
 
 async def _call(fn, *args, **kwargs):
-    """Вызывает метод библиотеки: если он асинхронный — ждём, иначе выполняем в отдельном потоке."""
     if inspect.iscoroutinefunction(fn):
         return await fn(*args, **kwargs)
     return await asyncio.to_thread(fn, *args, **kwargs)
 
 
+def _open(token, proxy=None):
+    try:
+        from playerokapi.account import Account
+    except ImportError:
+        raise PlayerokError("На сервере не установлена библиотека Playerok. Сообщи админу.")
+    kwargs = {"cookies": f"token={token}", "user_agent": USER_AGENT}
+    if proxy:
+        kwargs["proxy"] = proxy.strip()
+    return Account(**kwargs)
+
+
+def _explain(e):
+    """Переводит техническую ошибку в понятную фразу для пользователя."""
+    text = f"{type(e).__name__}: {e}"
+    if "BotCheck" in text or "ddg" in text.lower():
+        return ("Playerok просит подтвердить, что вход делает не бот. Для этого нужна ещё одна cookie "
+                "(__ddg5_), снятая с того же IP, что и прокси.")
+    if "407" in text or "Proxy" in text or "proxy" in text.lower():
+        return "Прокси не пускает: неверный логин или пароль, либо он закончился. Вставь новый в разделе «🛰 Прокси»."
+    if "401" in text or "Unauthorized" in text or "Unauthenticated" in text.lower():
+        return "Playerok не принял токен. Он устарел: возьми новый из свежей сессии."
+    if "403" in text:
+        return "Playerok закрыл доступ с этого адреса. Попробуй другой прокси."
+    if "500" in text:
+        return "Playerok отвечает ошибкой на этот запрос. Попробуй позже."
+    return "Не удалось получить данные с Playerok. Попробуй позже."
+
+
+def _name(acc):
+    return str(getattr(acc, "username", None) or f"id {getattr(acc, 'id', '?')}")
+
+
+def _balance(acc):
+    try:
+        return float(acc.profile.balance.available)
+    except Exception:
+        return None
+
+
+async def check_token(token, proxy=None):
+    token = (token or "").strip()
+    if not looks_like_token(token):
+        raise PlayerokError("Это не токен Playerok. Токен начинается с «eyJ» и состоит из трёх частей через точки.")
+    try:
+        acc = _open(token, proxy)
+        acc = await _call(acc.get)
+        return _name(acc)
+    except PlayerokError:
+        raise
+    except Exception as e:
+        log.warning("токен не прошёл проверку: %s", e)
+        raise PlayerokError(_explain(e))
+
+
 async def fetch_stats(token, days, max_pages=40, proxy=None):
     """Статистика по сделкам. days=0 — за всё время.
 
-    Продажи: сделки направления OUT со статусом PAID, SENT или CONFIRMED.
+    Продажи: сделки направления OUT со статусом PAID, SENT, CONFIRMED или CONFIRMED_AUTOMATICALLY.
     Возвраты: сделки направления OUT со статусом ROLLED_BACK.
-    Выручка: сумма транзакций продаж. Чистая сумма: выручка минус комиссия.
     """
-    from datetime import datetime, timedelta, timezone
-    from PlayerokAPI import ItemDealDirection, ItemDealStatus
+    from playerokapi.enums import ItemDealDirections, ItemDealStatuses
 
-    sold_statuses = {ItemDealStatus.PAID, ItemDealStatus.SENT, ItemDealStatus.CONFIRMED}
-    since = None if not days else datetime.now(timezone.utc) - timedelta(days=days)
+    sold = {ItemDealStatuses.PAID, ItemDealStatuses.SENT, ItemDealStatuses.CONFIRMED,
+            ItemDealStatuses.CONFIRMED_AUTOMATICALLY}
+    since = None
+    if days:
+        from datetime import timedelta
+        since = datetime.now(timezone.utc) - timedelta(days=days)
 
-    acc = _new_account(token, proxy)
     try:
-        me = await _call(acc.get_me)
-        name = _name(me)
-        balance = None
-        try:
-            balance = _balance_value(await _call(acc.get_balance))
-        except Exception as e:
-            log.warning("баланс не получен: %s", e)
+        acc = _open(token, proxy)
+        acc = await _call(acc.get)
+        name = _name(acc)
+        balance = _balance(acc)
 
         sales = refunds = 0
         revenue = fees = refund_sum = 0.0
         cursor = None
         for _ in range(max_pages):
-            page = await _call(acc.deals.search, first=50, after=cursor)
-            for d in page.items:
-                if getattr(d, "direction", None) != ItemDealDirection.OUT:
-                    continue
-                created = _parse_date(getattr(d, "created_at", None))
+            page = await _call(acc.get_deals, direction=ItemDealDirections.OUT, count=24, after_cursor=cursor)
+            for d in page.deals:
+                created = getattr(d, "created_at", None)
+                if isinstance(created, str):
+                    try:
+                        created = datetime.fromisoformat(created.replace("Z", "+00:00"))
+                    except ValueError:
+                        created = None
+                if created is not None and created.tzinfo is None:
+                    created = created.replace(tzinfo=timezone.utc)
                 if since and (created is None or created < since):
                     continue
                 tr = getattr(d, "transaction", None)
                 value = float(getattr(tr, "value", 0) or 0) if tr else 0.0
                 fee = float(getattr(tr, "fee", 0) or 0) if tr else 0.0
-                if d.status in sold_statuses:
+                if d.status in sold:
                     sales += 1
                     revenue += value
                     fees += fee
-                elif d.status == ItemDealStatus.ROLLED_BACK:
+                elif d.status == ItemDealStatuses.ROLLED_BACK:
                     refunds += 1
                     refund_sum += value
-            if not page.has_next_page:
+            if not page.page_info.has_next_page:
                 break
-            cursor = page.end_cursor
+            cursor = page.page_info.end_cursor
 
         return {"name": name, "balance": balance, "days": days,
                 "sales": sales, "refunds": refunds,
@@ -184,11 +151,6 @@ async def fetch_stats(token, days, max_pages=40, proxy=None):
         raise
     except Exception as e:
         log.warning("не удалось получить статистику: %s", e)
-        text = str(e)
-        if "407" in text or "Proxy" in text or "CONNECT" in text:
-            raise PlayerokError("Прокси не пускает. Скорее всего, он закончился или данные неверны. Вставь новый прокси в разделе «🛰 Прокси».")
-        if "403" in text:
-            raise PlayerokError("Playerok закрыл доступ к сделкам с этого прокси. Попробуй другой прокси.")
-        raise PlayerokError("Не удалось получить данные с Playerok. Попробуй позже.")
+        raise PlayerokError(_explain(e))
     finally:
-        await _close(acc)
+        pass
