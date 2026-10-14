@@ -745,9 +745,13 @@ async def handle_input(message: Message, state: FSMContext, st: str):
 
     if st == "in:token":
         await done()
-        if len(text) < 10 or len(text) > 2000:
-            await reply(message, "❌ Это не похоже на токен.")
+        found = playerok_api.extract_token(text)
+        if not found:
+            await reply(message, "❌ В сообщении не нашёл токен Playerok. Он начинается с «eyJ». "
+                                 "Вставь токен целиком, без лишних слов. Если вставлял cookies, найди строку token=eyJ… и скопируй только значение.",
+                        KB([B("➕ Попробовать ещё раз", "a:add"), B("🚫 Отмена", "a:list")]))
             return True
+        text = found
         if len(db.list_accounts(uid)) >= db.account_limit(uid):
             await reply(message, "Лимит магазинов исчерпан.")
             return True
