@@ -261,7 +261,29 @@ STATS_PERIODS = [(7, "7 дней"), (30, "30 дней"), (0, "Всё время"
 
 
 def stats_kb():
-    return KB([B(label, f"st:{d}") for d, label in STATS_PERIODS], [B("🏪 Мои магазины", "a:list")])
+    return KB([B(label, f"st:{d}") for d, label in STATS_PERIODS],
+              [B("📑 Полная сводка", "sf")], [B("🏪 Мои магазины", "a:list")])
+
+
+def full_text(f):
+    b = f["balance"]
+    u = f["unfinished"]
+    lines = [f"📑 <b>Сводка · {esc(f['name'])}</b>", "",
+             f"💼 Баланс: <b>{b['value']:.2f} ₽</b>",
+             f"💳 Доступно к выводу: <b>{b['withdrawable']:.2f} ₽</b>",
+             f"🧊 Заморожено: <b>{b['frozen']:.2f} ₽</b>",
+             f"⏳ Ожидаемый доход: <b>{b['pending']:.2f} ₽</b>", "",
+             f"📦 Незавершённых заказов: <b>{u[0]}</b> ({u[1]:.0f} ₽)", ""]
+    labels = [("day", "за сутки"), ("week", "за неделю"), ("month", "за месяц"), ("all", "за всё время")]
+    for key, title in (("ok", "✅ Подтверждённые заказы"), ("ref", "↩️ Возвраты")):
+        lines.append(f"<b>{title}</b>")
+        for pk, pl in labels:
+            c, sm = f["periods"][pk][key]
+            lines.append(f"· {pl}: <b>{c}</b> ({sm:.0f} ₽)")
+        lines.append("")
+    lines.append("<i>Чистую прибыль, расходы на премиум и отзывы пока не считаем: "
+                 "для них нужны комиссия площадки и данные, которые библиотека отдаёт отдельно.</i>")
+    return "\n".join(lines)
 
 
 async def stats_message(uid, days):
@@ -282,8 +304,9 @@ async def stats_message(uid, days):
             f"🛒 Продаж: <b>{s['sales']}</b>\n"
             f"↩️ Возвратов: <b>{s['refunds']}</b>\n"
             f"💰 Выручка: <b>{s['revenue']:.0f}</b>\n"
-            f"💸 Комиссия площадки: <b>{s['fees']:.0f}</b>\n"
-            f"✅ Чистыми: <b>{s['net']:.0f}</b>")
+            + (f"💸 Комиссия площадки: <b>{s['fees']:.0f}</b>\n"
+               f"✅ Чистыми: <b>{s['net']:.0f}</b>" if s['fees'] is not None else
+               "💸 Комиссия площадки: <i>нет данных в ответе Playerok</i>"))
     return text, stats_kb()
 
 
@@ -510,6 +533,21 @@ async def handle_main_callback(ctx: Ctx):
             await ctx.send("🎁 Введи промокод:", KB([B("🚫 Отмена", "cancel")]))
         else:
             return False
+        return True
+
+    if head == "sf":
+        accs = db.list_accounts(uid)
+        if not accs:
+            await ctx.ack("Сначала подключи магазин.", True)
+            return True
+        await ctx.ack("Собираю сводку…")
+        token = db.get_account_token(uid, accs[0]["id"])
+        try:
+            f = await playerok_api.fetch_full(token, proxy=db.get_user_proxy(uid))
+            text = full_text(f)
+        except playerok_api.PlayerokError as e:
+            text = f"❌ <b>{esc(accs[0]['name'])}</b>\n\n{esc(e)}"
+        await ctx.edit(text, KB([B("🔄 Обновить", "sf")], [B("← Назад", "a:list")]))
         return True
 
     if head == "st":
