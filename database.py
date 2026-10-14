@@ -117,6 +117,7 @@ def init_db():
     _add_col("users", "created", "INTEGER DEFAULT 0")
     _add_col("users", "banned", "INTEGER DEFAULT 0")
     _add_col("users", "admin_as_user", "INTEGER DEFAULT 0")
+    _add_col("users", "proxy", "TEXT")
     for r in c.execute("SELECT user_id FROM users WHERE public_id IS NULL").fetchall():
         c.execute("UPDATE users SET public_id=? WHERE user_id=?", (_next_public_id(), r["user_id"]))
     c.commit()
@@ -202,6 +203,16 @@ def add_premium_days(uid, days):
 
 def revoke_premium(uid):
     conn().execute("UPDATE users SET premium_until=0 WHERE user_id=?", (uid,))
+    conn().commit()
+
+
+def get_user_proxy(uid):
+    u = get_user(uid)
+    return (u["proxy"] if u and u["proxy"] else None)
+
+
+def set_user_proxy(uid, proxy):
+    conn().execute("UPDATE users SET proxy=? WHERE user_id=?", (proxy, uid))
     conn().commit()
 
 
