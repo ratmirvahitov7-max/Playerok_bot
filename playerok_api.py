@@ -97,7 +97,12 @@ async def check_token(token, proxy=None):
         raise
     except Exception as e:
         log.warning("токен не прошёл проверку: %s", e)
-        raise PlayerokError("Токен не подошёл. Проверь, что скопировал его полностью, без пробелов.")
+        text = str(e)
+        if "407" in text or "Proxy" in text:
+            raise PlayerokError("Прокси не пускает: неверный логин или пароль, либо у прокси не разрешён IP сервера.")
+        if "403" in text or "401" in text or "Unauthorized" in text:
+            raise PlayerokError("Playerok не принял токен. Возможно, он устарел: возьми новый.")
+        raise PlayerokError("Не удалось проверить токен. Попробуй позже или проверь прокси.")
     finally:
         await _close(acc)
 
@@ -179,6 +184,11 @@ async def fetch_stats(token, days, max_pages=40, proxy=None):
         raise
     except Exception as e:
         log.warning("не удалось получить статистику: %s", e)
+        text = str(e)
+        if "407" in text or "Proxy" in text or "CONNECT" in text:
+            raise PlayerokError("Прокси не пускает. Скорее всего, он закончился или данные неверны. Вставь новый прокси в разделе «🛰 Прокси».")
+        if "403" in text:
+            raise PlayerokError("Playerok закрыл доступ к сделкам с этого прокси. Попробуй другой прокси.")
         raise PlayerokError("Не удалось получить данные с Playerok. Попробуй позже.")
     finally:
         await _close(acc)
