@@ -202,6 +202,35 @@ async def fetch_full(token, proxy=None, max_pages=40):
             "pending": float(getattr(b, "pending_income", 0) or 0),
         }
 
+        from playerokapi.enums import TransactionOperations as Op
+        premium = {k: [0, 0.0] for k in periods}
+        cur = None
+        for _ in range(max_pages):
+            tpage = await _call(acc.get_transactions, operation=Op.ITEM_PREMIUM_PRIORITY, count=24, after_cursor=cur)
+            for t in tpage.transactions:
+                created = _parse_date(getattr(t, "created_at", None))
+                val = float(getattr(t, "value", 0) or 0)
+                for pname, since in periods.items():
+                    if since is None or (created is not None and created >= since):
+                        premium[pname][0] += 1
+                        premium[pname][1] += val
+            if not tpage.page_info.has_next_page:
+                break
+            cur = tpage.page_info.end_cursor
+
+        reviews = {k: 0 for k in periods}
+        rcur = None
+        for _ in range(max_pages):
+            rpage = await _call(acc.get_my_reviews, count=24, after_cursor=rcur)
+            for r in rpage.reviews:
+                created = _parse_date(getattr(r, "created_at", None))
+                for pname, since in periods.items():
+                    if since is None or (created is not None and created >= since):
+                        reviews[pname] += 1
+            if not rpage.page_info.has_next_page:
+                break
+            rcur = rpage.page_info.end_cursor
+
         cursor = None
         for _ in range(max_pages):
             page = await _call(acc.get_deals, direction=ItemDealDirections.OUT, count=24, after_cursor=cursor)
@@ -226,7 +255,8 @@ async def fetch_full(token, proxy=None, max_pages=40):
                 break
             cursor = page.page_info.end_cursor
 
-        return {"name": name, "balance": balance, "unfinished": unfinished, "periods": buckets}
+        return {"name": name, "balance": balance, "unfinished": unfinished, "periods": buckets,
+                "premium": premium, "reviews": reviews}
     except PlayerokError:
         raise
     except Exception as e:
