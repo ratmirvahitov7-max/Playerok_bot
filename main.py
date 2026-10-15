@@ -266,23 +266,40 @@ def stats_kb():
 
 
 def full_text(f):
+    from datetime import datetime, timezone, timedelta
     b = f["balance"]
     u = f["unfinished"]
-    lines = [f"📑 <b>Сводка · {esc(f['name'])}</b>", "",
+    periods = [("day", "За день"), ("week", "За неделю"), ("month", "За месяц"), ("all", "За всё время")]
+    lines = [f"📊 <b>Статистика аккаунта {esc(f['name'])}</b>", "",
              f"💼 Баланс: <b>{b['value']:.2f} ₽</b>",
              f"💳 Доступно к выводу: <b>{b['withdrawable']:.2f} ₽</b>",
              f"🧊 Заморожено: <b>{b['frozen']:.2f} ₽</b>",
-             f"⏳ Ожидаемый доход: <b>{b['pending']:.2f} ₽</b>", "",
-             f"📦 Незавершённых заказов: <b>{u[0]}</b> ({u[1]:.0f} ₽)", ""]
-    labels = [("day", "за сутки"), ("week", "за неделю"), ("month", "за месяц"), ("all", "за всё время")]
-    for key, title in (("ok", "✅ Подтверждённые заказы"), ("ref", "↩️ Возвраты")):
-        lines.append(f"<b>{title}</b>")
-        for pk, pl in labels:
+             f"📦 Незавершённых заказов: <b>{u[0]}</b> ({u[1]:.0f} ₽)",
+             f"⏳ Ожидаемый доход: <b>{b['pending']:.2f} ₽</b>", ""]
+
+    def block(title, emoji, key):
+        out = [f"{emoji} <b>{title}</b>"]
+        for pk, pl in periods:
             c, sm = f["periods"][pk][key]
-            lines.append(f"· {pl}: <b>{c}</b> ({sm:.0f} ₽)")
-        lines.append("")
-    lines.append("<i>Чистую прибыль, расходы на премиум и отзывы пока не считаем: "
-                 "для них нужны комиссия площадки и данные, которые библиотека отдаёт отдельно.</i>")
+            out.append(f"{pl}: <b>{c}</b> ({sm:.0f} ₽)")
+        return out + [""]
+
+    lines += block("Подтвержденные заказы", "🤑", "ok")
+    lines += block("Сумма возвратов", "♻️", "ref")
+
+    lines.append("🚀 <b>Потрачено на премиум</b>")
+    for pk, pl in periods:
+        c, sm = f["premium"][pk]
+        lines.append(f"{pl}: <b>{c}</b> ({sm:.0f} ₽)")
+    lines.append("")
+
+    lines.append("⭐️ <b>Отзывы</b>")
+    for pk, pl in periods:
+        lines.append(f"{pl}: <b>{f['reviews'][pk]}</b>")
+    lines.append("")
+
+    now = datetime.now(timezone(timedelta(hours=3)))
+    lines.append(f"🔄 Обновлено: {now:%Y.%m.%d %H:%M:%S}")
     return "\n".join(lines)
 
 
